@@ -100,7 +100,7 @@ done
 log_ok "NPM API is up."
 
 # -----------------------------------------------------------------------------
-# 3. Authenticate (handle the first-run default credentials)
+# 3. Authenticate
 # -----------------------------------------------------------------------------
 # get_token <email> <password> : echo the bearer token or empty on failure.
 get_token() {
@@ -110,9 +110,27 @@ get_token() {
         2>/dev/null | jq -r '.token // empty'
 }
 
-# claim_default_account : if the factory-default login still works, set the
-# admin email to ${ADMIN_EMAIL} and the password to ${NPM_ADMIN_PASSWORD}.
-# Returns 0 on success, 1 if the default credentials are not (yet) valid.
+# npm_is_setup : echo "true" if NPM already has an admin user, else "false"
+# (NPM >= 2.x exposes this via GET /api/). Empty if the field is absent.
+npm_is_setup() {
+    curl -fsS "${NPM_API}/" 2>/dev/null | jq -r '.setup // empty'
+}
+
+# create_first_user : on a fresh NPM (>= ~2.11 no longer ships a default admin)
+# the first admin is created via an unauthenticated POST /api/users carrying the
+# password in a nested auth block. No-op/ignored once a user already exists.
+create_first_user() {
+    log_info "No admin configured yet - creating the first admin ${ADMIN_EMAIL}."
+    curl -fsS -X POST "${NPM_API}/users" \
+        -H 'Content-Type: application/json' \
+        -d "$(jq -n --arg e "$ADMIN_EMAIL" --arg s "$NPM_ADMIN_PASSWORD" \
+            '{name:"Administrator", nickname:"Admin", email:$e, roles:["admin"],
+              is_disabled:false, auth:{type:"password", secret:$s}}')" \
+        >/dev/null 2>&1 || true
+}
+
+# claim_default_account : legacy path for older NPM that DID ship the factory
+# default admin@example.com/changeme. Sets it to ${ADMIN_EMAIL}/${NPM_ADMIN_PASSWORD}.
 claim_default_account() {
     local def_token uid
     def_token="$(get_token "$DEFAULT_EMAIL" "$DEFAULT_PASS" || true)"
@@ -132,12 +150,20 @@ claim_default_account() {
 }
 
 log_step "Authenticating with NPM"
-# Retry: NPM answers /api/ before the default admin is seeded, so the first
-# attempts can legitimately fail. Try configured creds, else claim the default.
+# Retry: NPM may answer /api/ before it is fully ready. Each round: try the
+# configured creds; if NPM has no admin yet, bootstrap the first user; otherwise
+# fall back to claiming a legacy factory-default admin.
 TOKEN=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 40); do
     TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD" || true)"
     [[ -n "$TOKEN" ]] && break
+
+    if [[ "$(npm_is_setup)" == "false" ]]; then
+        create_first_user
+        TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD" || true)"
+        [[ -n "$TOKEN" ]] && break
+    fi
+
     if claim_default_account; then
         TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD" || true)"
         [[ -n "$TOKEN" ]] && break
@@ -147,11 +173,10 @@ done
 
 if [[ -z "$TOKEN" ]]; then
     log_error "Could not authenticate to NPM after retries."
-    log_info "Raw NPM response for the default credentials (for diagnosis):"
-    curl -sS -i -X POST "${NPM_API}/tokens" -H 'Content-Type: application/json' \
-        -d "$(jq -n --arg i "$DEFAULT_EMAIL" --arg s "$DEFAULT_PASS" '{identity:$i, secret:$s}')" 2>&1 | head -n 20 || true
+    log_info "NPM status (GET /api/):"
+    curl -sS "${NPM_API}/" 2>&1 | head -n 5 || true
     echo
-    die "NPM admin is neither the factory default nor ${ADMIN_EMAIL}/NPM_ADMIN_PASSWORD. Set NPM_ADMIN_PASSWORD in .secrets.env to the real password, or reset NPM (see docs/TROUBLESHOOTING.md)."
+    die "NPM already has an admin that is not ${ADMIN_EMAIL}/NPM_ADMIN_PASSWORD. Set NPM_ADMIN_PASSWORD in .secrets.env to the real password, or reset NPM with: sudo $0 --reset-npm  (see docs/TROUBLESHOOTING.md)."
 fi
 AUTH=(-H "Authorization: Bearer ${TOKEN}")
 log_ok "Authenticated as ${ADMIN_EMAIL}."
