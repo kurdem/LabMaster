@@ -78,32 +78,51 @@ get_token() {
         2>/dev/null | jq -r '.token // empty'
 }
 
+# claim_default_account : if the factory-default login still works, set the
+# admin email to ${ADMIN_EMAIL} and the password to ${NPM_ADMIN_PASSWORD}.
+# Returns 0 on success, 1 if the default credentials are not (yet) valid.
+claim_default_account() {
+    local def_token uid
+    def_token="$(get_token "$DEFAULT_EMAIL" "$DEFAULT_PASS" || true)"
+    [[ -n "$def_token" ]] || return 1
+    log_info "Factory default detected - claiming the admin account."
+    uid="$(curl -fsS "${NPM_API}/users/me" -H "Authorization: Bearer ${def_token}" 2>/dev/null | jq -r '.id' || true)"
+    curl -fsS -X PUT "${NPM_API}/users/${uid}" \
+        -H "Authorization: Bearer ${def_token}" -H 'Content-Type: application/json' \
+        -d "$(jq -n --arg e "$ADMIN_EMAIL" '{name:"Administrator", nickname:"Admin", email:$e, roles:["admin"], is_disabled:false}')" \
+        >/dev/null 2>&1 || true
+    curl -fsS -X PUT "${NPM_API}/users/${uid}/auth" \
+        -H "Authorization: Bearer ${def_token}" -H 'Content-Type: application/json' \
+        -d "$(jq -n --arg c "$DEFAULT_PASS" --arg s "$NPM_ADMIN_PASSWORD" '{type:"password", current:$c, secret:$s}')" \
+        >/dev/null 2>&1 || true
+    log_ok "Admin account set to ${ADMIN_EMAIL} with the generated password."
+    return 0
+}
+
 log_step "Authenticating with NPM"
-TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD" || true)"
+# Retry: NPM answers /api/ before the default admin is seeded, so the first
+# attempts can legitimately fail. Try configured creds, else claim the default.
+TOKEN=""
+for _ in $(seq 1 30); do
+    TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD" || true)"
+    [[ -n "$TOKEN" ]] && break
+    if claim_default_account; then
+        TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD" || true)"
+        [[ -n "$TOKEN" ]] && break
+    fi
+    sleep 2
+done
 
 if [[ -z "$TOKEN" ]]; then
-    # Maybe still on the factory default -> claim the account.
-    TOKEN="$(get_token "$DEFAULT_EMAIL" "$DEFAULT_PASS" || true)"
-    [[ -n "$TOKEN" ]] || die "Cannot authenticate to NPM. The admin password may have been changed manually; update NPM_ADMIN_PASSWORD in .secrets.env or reset NPM."
-
-    log_info "First run detected - configuring the admin account."
-    UID_ME="$(curl -fsS "${NPM_API}/users/me" -H "Authorization: Bearer ${TOKEN}" | jq -r '.id')"
-    # Update name/nickname/email.
-    curl -fsS -X PUT "${NPM_API}/users/${UID_ME}" \
-        -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
-        -d "$(jq -n --arg e "$ADMIN_EMAIL" '{name:"Administrator", nickname:"Admin", email:$e, roles:["admin"], is_disabled:false}')" \
-        >/dev/null
-    # Change the password from the default.
-    curl -fsS -X PUT "${NPM_API}/users/${UID_ME}/auth" \
-        -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
-        -d "$(jq -n --arg c "$DEFAULT_PASS" --arg s "$NPM_ADMIN_PASSWORD" '{type:"password", current:$c, secret:$s}')" \
-        >/dev/null
-    log_ok "Admin account set to ${ADMIN_EMAIL} with the generated password."
-    TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD" || true)"
-    [[ -n "$TOKEN" ]] || die "Re-authentication after password change failed."
+    log_error "Could not authenticate to NPM after retries."
+    log_info "Raw NPM response for the default credentials (for diagnosis):"
+    curl -sS -i -X POST "${NPM_API}/tokens" -H 'Content-Type: application/json' \
+        -d "$(jq -n --arg i "$DEFAULT_EMAIL" --arg s "$DEFAULT_PASS" '{identity:$i, secret:$s}')" 2>&1 | head -n 20 || true
+    echo
+    die "NPM admin is neither the factory default nor ${ADMIN_EMAIL}/NPM_ADMIN_PASSWORD. Set NPM_ADMIN_PASSWORD in .secrets.env to the real password, or reset NPM (see docs/TROUBLESHOOTING.md)."
 fi
 AUTH=(-H "Authorization: Bearer ${TOKEN}")
-log_ok "Authenticated."
+log_ok "Authenticated as ${ADMIN_EMAIL}."
 
 # -----------------------------------------------------------------------------
 # 4. Upload the certificate (reuse if it already exists)

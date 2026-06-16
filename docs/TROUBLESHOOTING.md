@@ -85,6 +85,21 @@ It prints exactly what it will remove and asks for confirmation (unless
   no longer matches `NPM_ADMIN_PASSWORD` in `/opt/docker/.secrets.env`. Update the
   secret to the real password, or reset NPM (remove
   `data/nginx-proxy-manager/data` and recreate the stack) to return to defaults.
+- **`Could not authenticate to NPM`** — the admin is neither the factory
+  default nor `admin@<domain>` + `NPM_ADMIN_PASSWORD`. This usually means the
+  admin account was changed manually (e.g. by logging into the NPM web UI on
+  port 81, which forces an email/password change). The script prints the raw
+  HTTP response for the default credentials to help diagnose. Fix by either:
+  - setting `NPM_ADMIN_PASSWORD` in `/opt/docker/.secrets.env` to the password
+    you chose (only works if the admin email is `admin@<domain>`), or
+  - **resetting NPM to factory defaults** (nothing valuable is configured yet):
+    ```bash
+    P="--project-name nginx-proxy-manager --env-file /opt/docker/.env --env-file /opt/docker/.secrets.env -f /opt/docker/compose/nginx-proxy-manager/docker-compose.yml"
+    docker compose $P down
+    sudo rm -rf /opt/docker/data/nginx-proxy-manager/data/*
+    docker compose $P up -d
+    sleep 20 && sudo /opt/docker/scripts/setup-proxy.sh
+    ```
 - **Browser trust warning** — expected: the wildcard cert is self-signed. Import
   it as trusted, or switch the proxy hosts to Let's Encrypt for a public setup.
 - **Re-running** is safe: the existing certificate and proxy hosts are detected
