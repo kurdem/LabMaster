@@ -103,6 +103,8 @@ else
     log_ok "Secrets file already present; keeping existing values."
 fi
 load_env
+# Backfill secrets introduced after a host was first provisioned (idempotent).
+ensure_secret NPM_ADMIN_PASSWORD "$(gen_secret 20)"
 
 # Directory structure under ${DOCKER_ROOT}.
 log_info "Creating directory tree under ${DOCKER_ROOT}"

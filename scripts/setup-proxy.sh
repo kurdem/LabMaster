@@ -37,7 +37,8 @@ KEY="${SSL_DIR}/wildcard.key"
 ADMIN_EMAIL="admin@${DOMAIN}"
 DEFAULT_EMAIL="admin@example.com"
 DEFAULT_PASS="changeme"
-: "${NPM_ADMIN_PASSWORD:?NPM_ADMIN_PASSWORD not set in .secrets.env (run install.sh first)}"
+# Self-heal: generate the secret on hosts provisioned before it was introduced.
+ensure_secret NPM_ADMIN_PASSWORD "$(gen_secret 20)"
 
 # -----------------------------------------------------------------------------
 # 1. Generate the self-signed wildcard certificate (if missing)

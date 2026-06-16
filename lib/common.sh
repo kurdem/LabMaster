@@ -143,6 +143,22 @@ gen_hex() {
     openssl rand -hex "${1:-16}"
 }
 
+# ensure_secret <KEY> <value> : guarantee KEY exists in the secrets file.
+# Keeps an existing value; otherwise appends <value> and exports it. Lets hosts
+# provisioned before a new secret was introduced self-heal on the next run.
+ensure_secret() {
+    local key="$1" val="$2" file; file="$(SECRETS_FILE)"
+    if [[ -f "$file" ]] && grep -qE "^${key}=" "$file"; then
+        return 0
+    fi
+    umask 077
+    mkdir -p "$(dirname "$file")"
+    printf '%s=%s\n' "$key" "$val" >> "$file"
+    chmod 600 "$file"
+    export "${key}=${val}"
+    log_info "Added missing secret ${key} to ${file}"
+}
+
 # --- Docker helpers ---------------------------------------------------------
 # compose_cmd <service> <args...> : run docker compose for a stack using the
 # central env + secrets files.
