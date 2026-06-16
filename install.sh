@@ -121,6 +121,14 @@ mkdir -p \
     "${DOCKER_ROOT}/data/gitea"
 log_ok "Directory structure ready."
 
+# Fix ownership of bind mounts for containers that run as a non-root user and
+# would otherwise fail to write their data (n8n -> uid 1000 'node';
+# gitea -> USER_UID/USER_GID = PUID/PGID). Idempotent.
+log_info "Setting data ownership for non-root containers"
+chown -R 1000:1000 "${DOCKER_ROOT}/data/n8n"
+chown -R "${PUID:-1000}:${PGID:-1000}" "${DOCKER_ROOT}/data/gitea"
+log_ok "Data ownership set."
+
 # -----------------------------------------------------------------------------
 # 6. Deploy compose files & helper scripts
 # -----------------------------------------------------------------------------

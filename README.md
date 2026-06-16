@@ -7,6 +7,7 @@ Gitea — with persistent data, randomly generated secrets and a backup/restore
 workflow.
 
 ```bash
+sudo apt update && sudo apt install -y git   # if git is not installed yet
 git clone <your-repo-url> labmaster
 cd labmaster
 sudo ./install.sh        # or: sudo bash install.sh

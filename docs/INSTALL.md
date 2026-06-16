@@ -10,10 +10,30 @@
 
 ## 1. Get the project
 
+Git is required to clone the repository. On a fresh Ubuntu it is usually not
+installed yet:
+
+```bash
+sudo apt update
+sudo apt install -y git
+```
+
+Then clone and enter the project:
+
 ```bash
 git clone <your-repo-url> labmaster
 cd labmaster
 ```
+
+> Optional, if you commit from this host:
+> ```bash
+> git config --global user.name  "Your Name"
+> git config --global user.email "you@example.com"
+> ```
+> For SSH (instead of HTTPS) clones, create a key and add it to your Git host:
+> ```bash
+> ssh-keygen -t ed25519 -C "you@example.com"
+> ```
 
 ## 2. Run the bootstrap
 
