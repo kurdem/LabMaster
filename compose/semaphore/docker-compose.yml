@@ -1,0 +1,58 @@
+# Semaphore - Ansible/Terraform UI, backed by its own PostgreSQL container.
+# Web UI reached via the reverse proxy at https://${SEMAPHORE_SUBDOMAIN}.${DOMAIN}.
+services:
+  semaphore-db:
+    image: postgres:16-alpine
+    container_name: semaphore-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: semaphore
+      POSTGRES_DB: semaphore
+      POSTGRES_PASSWORD: ${SEMAPHORE_DB_PASSWORD}
+      TZ: ${TIMEZONE}
+    volumes:
+      - ${DOCKER_ROOT}/data/semaphore/postgres:/var/lib/postgresql/data
+    networks:
+      - semaphore-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U semaphore"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  semaphore:
+    image: semaphoreui/semaphore:latest
+    container_name: semaphore
+    restart: unless-stopped
+    depends_on:
+      semaphore-db:
+        condition: service_healthy
+    environment:
+      TZ: ${TIMEZONE}
+      SEMAPHORE_DB_DIALECT: postgres
+      SEMAPHORE_DB_HOST: semaphore-db
+      SEMAPHORE_DB_PORT: 5432
+      SEMAPHORE_DB_NAME: semaphore
+      SEMAPHORE_DB_USER: semaphore
+      SEMAPHORE_DB_PASS: ${SEMAPHORE_DB_PASSWORD}
+      SEMAPHORE_ADMIN: admin
+      SEMAPHORE_ADMIN_NAME: Administrator
+      SEMAPHORE_ADMIN_EMAIL: admin@${DOMAIN}
+      SEMAPHORE_ADMIN_PASSWORD: ${SEMAPHORE_ADMIN_PASSWORD}
+      SEMAPHORE_ACCESS_KEY_ENCRYPTION: ${SEMAPHORE_ACCESS_KEY_ENCRYPTION}
+      SEMAPHORE_COOKIE_HASH: ${SEMAPHORE_COOKIE_HASH}
+      SEMAPHORE_COOKIE_ENCRYPTION: ${SEMAPHORE_COOKIE_ENCRYPTION}
+      SEMAPHORE_WEB_ROOT: https://${SEMAPHORE_SUBDOMAIN}.${DOMAIN}
+    volumes:
+      - ${DOCKER_ROOT}/data/semaphore/data:/var/lib/semaphore
+    expose:
+      - "3000"
+    networks:
+      - proxy
+      - semaphore-internal
+
+networks:
+  proxy:
+    external: true
+  semaphore-internal:
+    driver: bridge
