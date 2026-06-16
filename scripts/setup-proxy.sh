@@ -3,7 +3,12 @@
 # setup-proxy.sh - Generate a self-signed wildcard certificate, upload it to
 # Nginx Proxy Manager, and create the proxy hosts for the enabled services.
 #
-#   sudo ./setup-proxy.sh
+#   sudo ./setup-proxy.sh [--reset-npm] [--yes]
+#
+#   --reset-npm  Wipe NPM's config DB first (factory reset), then configure it.
+#                Use when the NPM admin was changed manually and the password is
+#                unknown. Prompts for confirmation unless --yes is given.
+#   --yes, -y    Skip the confirmation prompt.
 #
 # Idempotent: re-running reuses the existing certificate and skips proxy hosts
 # that already exist. Requires the NPM stack to be running. Uses curl/jq/openssl.
@@ -19,6 +24,17 @@ for _cand in "${SCRIPT_DIR}/lib/common.sh" "${SCRIPT_DIR}/../lib/common.sh" "/op
     [[ -r "$_cand" ]] && { . "$_cand"; _COMMON_LOADED=1; break; }
 done
 [[ -n "${_COMMON_LOADED:-}" ]] || { echo "[FAIL] lib/common.sh not found." >&2; exit 1; }
+
+RESET_NPM=0
+ASSUME_YES=0
+for arg in "$@"; do
+    case "$arg" in
+        --reset-npm) RESET_NPM=1 ;;
+        --yes|-y)    ASSUME_YES=1 ;;
+        -h|--help)   grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "Unknown option: $arg (try --help)" >&2; exit 1 ;;
+    esac
+done
 
 require_root
 load_env
@@ -57,6 +73,22 @@ else
 fi
 
 # -----------------------------------------------------------------------------
+# 1b. Optional: reset NPM to factory defaults (--reset-npm)
+# -----------------------------------------------------------------------------
+if [[ "$RESET_NPM" == "1" ]]; then
+    log_step "Resetting NPM to factory defaults"
+    log_warn "This wipes NPM's config DB at ${DOCKER_ROOT}/data/nginx-proxy-manager/data (proxy hosts, NPM users)."
+    if [[ "$ASSUME_YES" -ne 1 ]]; then
+        read -r -p "Proceed with NPM reset? [y/N] " ans
+        [[ "${ans:-N}" =~ ^[Yy]$ ]] || die "Aborted by user."
+    fi
+    compose_cmd nginx-proxy-manager down || true
+    rm -rf "${DOCKER_ROOT:?}/data/nginx-proxy-manager/data/"* 2>/dev/null || true
+    compose_cmd nginx-proxy-manager up -d
+    log_ok "NPM reset; it will re-seed the factory admin on startup."
+fi
+
+# -----------------------------------------------------------------------------
 # 2. Wait for the NPM API
 # -----------------------------------------------------------------------------
 log_step "Waiting for Nginx Proxy Manager API"
@@ -68,7 +100,7 @@ done
 log_ok "NPM API is up."
 
 # -----------------------------------------------------------------------------
-# 3. Authenticate (handle the first-run default credentials)
+# 3. Authenticate
 # -----------------------------------------------------------------------------
 # get_token <email> <password> : echo the bearer token or empty on failure.
 get_token() {
@@ -78,32 +110,76 @@ get_token() {
         2>/dev/null | jq -r '.token // empty'
 }
 
+# npm_is_setup : echo "true" if NPM already has an admin user, else "false"
+# (NPM >= 2.x exposes this via GET /api/). Empty if the field is absent.
+npm_is_setup() {
+    curl -fsS "${NPM_API}/" 2>/dev/null | jq -r '.setup // empty'
+}
+
+# create_first_user : on a fresh NPM (>= ~2.11 no longer ships a default admin)
+# the first admin is created via an unauthenticated POST /api/users carrying the
+# password in a nested auth block. No-op/ignored once a user already exists.
+create_first_user() {
+    log_info "No admin configured yet - creating the first admin ${ADMIN_EMAIL}."
+    curl -fsS -X POST "${NPM_API}/users" \
+        -H 'Content-Type: application/json' \
+        -d "$(jq -n --arg e "$ADMIN_EMAIL" --arg s "$NPM_ADMIN_PASSWORD" \
+            '{name:"Administrator", nickname:"Admin", email:$e, roles:["admin"],
+              is_disabled:false, auth:{type:"password", secret:$s}}')" \
+        >/dev/null 2>&1 || true
+}
+
+# claim_default_account : legacy path for older NPM that DID ship the factory
+# default admin@example.com/changeme. Sets it to ${ADMIN_EMAIL}/${NPM_ADMIN_PASSWORD}.
+claim_default_account() {
+    local def_token uid
+    def_token="$(get_token "$DEFAULT_EMAIL" "$DEFAULT_PASS" || true)"
+    [[ -n "$def_token" ]] || return 1
+    log_info "Factory default detected - claiming the admin account."
+    uid="$(curl -fsS "${NPM_API}/users/me" -H "Authorization: Bearer ${def_token}" 2>/dev/null | jq -r '.id' || true)"
+    curl -fsS -X PUT "${NPM_API}/users/${uid}" \
+        -H "Authorization: Bearer ${def_token}" -H 'Content-Type: application/json' \
+        -d "$(jq -n --arg e "$ADMIN_EMAIL" '{name:"Administrator", nickname:"Admin", email:$e, roles:["admin"], is_disabled:false}')" \
+        >/dev/null 2>&1 || true
+    curl -fsS -X PUT "${NPM_API}/users/${uid}/auth" \
+        -H "Authorization: Bearer ${def_token}" -H 'Content-Type: application/json' \
+        -d "$(jq -n --arg c "$DEFAULT_PASS" --arg s "$NPM_ADMIN_PASSWORD" '{type:"password", current:$c, secret:$s}')" \
+        >/dev/null 2>&1 || true
+    log_ok "Admin account set to ${ADMIN_EMAIL} with the generated password."
+    return 0
+}
+
 log_step "Authenticating with NPM"
-TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD")"
+# Retry: NPM may answer /api/ before it is fully ready. Each round: try the
+# configured creds; if NPM has no admin yet, bootstrap the first user; otherwise
+# fall back to claiming a legacy factory-default admin.
+TOKEN=""
+for _ in $(seq 1 40); do
+    TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD" || true)"
+    [[ -n "$TOKEN" ]] && break
+
+    if [[ "$(npm_is_setup)" == "false" ]]; then
+        create_first_user
+        TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD" || true)"
+        [[ -n "$TOKEN" ]] && break
+    fi
+
+    if claim_default_account; then
+        TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD" || true)"
+        [[ -n "$TOKEN" ]] && break
+    fi
+    sleep 2
+done
 
 if [[ -z "$TOKEN" ]]; then
-    # Maybe still on the factory default -> claim the account.
-    TOKEN="$(get_token "$DEFAULT_EMAIL" "$DEFAULT_PASS")"
-    [[ -n "$TOKEN" ]] || die "Cannot authenticate to NPM. The admin password may have been changed manually; update NPM_ADMIN_PASSWORD in .secrets.env or reset NPM."
-
-    log_info "First run detected - configuring the admin account."
-    UID_ME="$(curl -fsS "${NPM_API}/users/me" -H "Authorization: Bearer ${TOKEN}" | jq -r '.id')"
-    # Update name/nickname/email.
-    curl -fsS -X PUT "${NPM_API}/users/${UID_ME}" \
-        -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
-        -d "$(jq -n --arg e "$ADMIN_EMAIL" '{name:"Administrator", nickname:"Admin", email:$e, roles:["admin"], is_disabled:false}')" \
-        >/dev/null
-    # Change the password from the default.
-    curl -fsS -X PUT "${NPM_API}/users/${UID_ME}/auth" \
-        -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
-        -d "$(jq -n --arg c "$DEFAULT_PASS" --arg s "$NPM_ADMIN_PASSWORD" '{type:"password", current:$c, secret:$s}')" \
-        >/dev/null
-    log_ok "Admin account set to ${ADMIN_EMAIL} with the generated password."
-    TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD")"
-    [[ -n "$TOKEN" ]] || die "Re-authentication after password change failed."
+    log_error "Could not authenticate to NPM after retries."
+    log_info "NPM status (GET /api/):"
+    curl -sS "${NPM_API}/" 2>&1 | head -n 5 || true
+    echo
+    die "NPM already has an admin that is not ${ADMIN_EMAIL}/NPM_ADMIN_PASSWORD. Set NPM_ADMIN_PASSWORD in .secrets.env to the real password, or reset NPM with: sudo $0 --reset-npm  (see docs/TROUBLESHOOTING.md)."
 fi
 AUTH=(-H "Authorization: Bearer ${TOKEN}")
-log_ok "Authenticated."
+log_ok "Authenticated as ${ADMIN_EMAIL}."
 
 # -----------------------------------------------------------------------------
 # 4. Upload the certificate (reuse if it already exists)

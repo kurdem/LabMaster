@@ -170,7 +170,10 @@ cat <<EOF
 ${C_OK}${C_BOLD}LabMaster Docker host is ready.${C_RESET}
 
   Reverse proxy admin : http://<host-ip>:${NPM_ADMIN_PORT}
-       NPM first login : admin@example.com / changeme  (change immediately!)
+       NPM admin login : created by setup-proxy.sh as admin@${DOMAIN}
+                         (password in $(SECRETS_FILE) -> NPM_ADMIN_PASSWORD).
+                         Until then NPM has no admin (recent versions ship no
+                         default); create one in the UI or run setup-proxy.sh.
 
   Service URLs (configure proxy hosts in NPM, pointing to the container names):
     n8n        -> https://${N8N_SUBDOMAIN}.${DOMAIN}        (n8n:5678)

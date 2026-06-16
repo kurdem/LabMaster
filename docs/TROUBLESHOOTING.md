@@ -81,10 +81,27 @@ It prints exactly what it will remove and asks for confirmation (unless
 
 - **`NPM API not reachable`** — the `nginx-proxy-manager` container isn't running
   yet. Check `docker logs nginx-proxy-manager` and retry.
-- **`Cannot authenticate to NPM`** — the admin password was changed manually and
-  no longer matches `NPM_ADMIN_PASSWORD` in `/opt/docker/.secrets.env`. Update the
-  secret to the real password, or reset NPM (remove
-  `data/nginx-proxy-manager/data` and recreate the stack) to return to defaults.
+- **First admin user** — recent NPM versions (~2.11+, e.g. 2.15) no longer ship
+  the `admin@example.com` / `changeme` default. On a fresh NPM the script creates
+  the first admin (`admin@<domain>` + `NPM_ADMIN_PASSWORD`) automatically via the
+  API; older versions that still have the factory default are claimed instead.
+- **`Could not authenticate to NPM`** — NPM already has an admin that is **not**
+  `admin@<domain>` + `NPM_ADMIN_PASSWORD`. This usually means the admin was set
+  up manually (e.g. via the NPM web UI on port 81). Fix by either:
+  - setting `NPM_ADMIN_PASSWORD` in `/opt/docker/.secrets.env` to the password
+    you chose (only works if the admin email is `admin@<domain>`), or
+  - **resetting NPM** (nothing valuable is configured yet) — easiest via the flag:
+    ```bash
+    sudo /opt/docker/scripts/setup-proxy.sh --reset-npm
+    ```
+    or manually:
+    ```bash
+    P="--project-name nginx-proxy-manager --env-file /opt/docker/.env --env-file /opt/docker/.secrets.env -f /opt/docker/compose/nginx-proxy-manager/docker-compose.yml"
+    docker compose $P down
+    sudo rm -rf /opt/docker/data/nginx-proxy-manager/data/*
+    docker compose $P up -d
+    sleep 20 && sudo /opt/docker/scripts/setup-proxy.sh
+    ```
 - **Browser trust warning** — expected: the wildcard cert is self-signed. Import
   it as trusted, or switch the proxy hosts to Let's Encrypt for a public setup.
 - **Re-running** is safe: the existing certificate and proxy hosts are detected
