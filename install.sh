@@ -95,6 +95,7 @@ SEMAPHORE_ACCESS_KEY_ENCRYPTION=$(openssl rand -base64 32)
 SEMAPHORE_COOKIE_HASH=$(openssl rand -base64 32)
 SEMAPHORE_COOKIE_ENCRYPTION=$(openssl rand -base64 32)
 GITEA_ADMIN_PASSWORD=$(gen_secret 20)
+NPM_ADMIN_PASSWORD=$(gen_secret 20)
 EOF
     chmod 600 "$SECRETS"
     log_ok "Secrets written (chmod 600)."
@@ -112,6 +113,7 @@ mkdir -p \
     "${DOCKER_ROOT}/data/n8n" \
     "${DOCKER_ROOT}/data/nginx-proxy-manager/data" \
     "${DOCKER_ROOT}/data/nginx-proxy-manager/letsencrypt" \
+    "${DOCKER_ROOT}/data/nginx-proxy-manager/custom-ssl" \
     "${DOCKER_ROOT}/data/semaphore/data" \
     "${DOCKER_ROOT}/data/semaphore/postgres" \
     "${DOCKER_ROOT}/data/gitea"
@@ -179,7 +181,10 @@ ${C_OK}${C_BOLD}LabMaster Docker host is ready.${C_RESET}
 
   Next steps:
     - Point your DNS records to this host's public IP.
-    - In NPM, add Proxy Hosts + request Let's Encrypt certificates.
+    - (Optional) auto-configure NPM: generate a self-signed wildcard cert and
+      create the proxy hosts for all services:
+          sudo ${DOCKER_ROOT}/scripts/setup-proxy.sh
+      (Otherwise add Proxy Hosts manually in NPM, e.g. with Let's Encrypt.)
     - (Optional) harden the firewall: sudo ${DOCKER_ROOT}/scripts/firewall.sh
     - Set up backups: see docs/BACKUP.md
 

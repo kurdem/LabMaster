@@ -16,6 +16,23 @@ On first run the installer prompts interactively for `DOMAIN`, `TIMEZONE`,
 subdomains and ports (defaults from `.env.example`). For unattended installs,
 set `ASSUME_DEFAULTS=1` to accept all defaults without prompting.
 
+### Automatic proxy & certificate setup (optional)
+
+To skip the manual Nginx Proxy Manager clicking, run:
+
+```bash
+sudo /opt/docker/scripts/setup-proxy.sh
+```
+
+This generates a **self-signed wildcard certificate** (`*.<domain>`), uploads it
+to NPM, and creates the proxy hosts for all enabled services (SSL forced,
+WebSocket enabled). On first run it also claims the NPM admin account, replacing
+the factory default with `admin@<domain>` and the generated `NPM_ADMIN_PASSWORD`
+from `.secrets.env`. It is idempotent.
+
+> The certificate is self-signed, so browsers show a trust warning. For a public
+> deployment, request Let's Encrypt certificates in NPM instead.
+
 ## What you get
 
 | Service | Purpose | Access |

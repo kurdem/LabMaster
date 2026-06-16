@@ -75,6 +75,21 @@ sudo ./teardown.sh --all --yes # full reset, no prompt
 It prints exactly what it will remove and asks for confirmation (unless
 `--yes`). After teardown: `sudo ./install.sh` to provision again.
 
+## Automatic proxy setup (setup-proxy.sh)
+
+`setup-proxy.sh` configures NPM via its API. Common issues:
+
+- **`NPM API not reachable`** — the `nginx-proxy-manager` container isn't running
+  yet. Check `docker logs nginx-proxy-manager` and retry.
+- **`Cannot authenticate to NPM`** — the admin password was changed manually and
+  no longer matches `NPM_ADMIN_PASSWORD` in `/opt/docker/.secrets.env`. Update the
+  secret to the real password, or reset NPM (remove
+  `data/nginx-proxy-manager/data` and recreate the stack) to return to defaults.
+- **Browser trust warning** — expected: the wildcard cert is self-signed. Import
+  it as trusted, or switch the proxy hosts to Let's Encrypt for a public setup.
+- **Re-running** is safe: the existing certificate and proxy hosts are detected
+  and skipped.
+
 ## Adding a new stack
 
 1. Create `compose/<service>/docker-compose.yml`:
