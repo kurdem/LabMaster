@@ -1,0 +1,11 @@
+# Configuration files
+.env
+.secrets.env
+
+# Backups
+backups/
+*.tar.gz
+
+# OS / editor noise
+*.swp
+.DS_Store

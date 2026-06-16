@@ -1,0 +1,33 @@
+# Gitea - self-hosted Git service. HTTP is reached via the reverse proxy at
+# https://${GITEA_SUBDOMAIN}.${DOMAIN}; SSH is exposed on ${GITEA_SSH_PORT}.
+# Uses the built-in SQLite database (persisted under data/gitea).
+services:
+  gitea:
+    image: gitea/gitea:latest
+    container_name: gitea
+    restart: unless-stopped
+    environment:
+      USER_UID: ${PUID}
+      USER_GID: ${PGID}
+      TZ: ${TIMEZONE}
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__server__DOMAIN: ${GITEA_SUBDOMAIN}.${DOMAIN}
+      GITEA__server__ROOT_URL: https://${GITEA_SUBDOMAIN}.${DOMAIN}/
+      GITEA__server__SSH_DOMAIN: ${GITEA_SUBDOMAIN}.${DOMAIN}
+      GITEA__server__SSH_PORT: ${GITEA_SSH_PORT}
+      GITEA__server__SSH_LISTEN_PORT: 22
+      GITEA__server__HTTP_PORT: 3000
+    volumes:
+      - ${DOCKER_ROOT}/data/gitea:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "${GITEA_SSH_PORT}:22"   # Git over SSH
+    expose:
+      - "3000"
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true

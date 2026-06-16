@@ -1,0 +1,29 @@
+# n8n - workflow automation. Reached via the reverse proxy at
+# https://${N8N_SUBDOMAIN}.${DOMAIN} - no host ports exposed.
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    environment:
+      TZ: ${TIMEZONE}
+      GENERIC_TIMEZONE: ${TIMEZONE}
+      N8N_HOST: ${N8N_SUBDOMAIN}.${DOMAIN}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      N8N_EDITOR_BASE_URL: https://${N8N_SUBDOMAIN}.${DOMAIN}/
+      WEBHOOK_URL: https://${N8N_SUBDOMAIN}.${DOMAIN}/
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      # Behind a TLS-terminating proxy:
+      N8N_PROXY_HOPS: 1
+      N8N_RUNNERS_ENABLED: "true"
+    volumes:
+      - ${DOCKER_ROOT}/data/n8n:/home/node/.n8n
+    expose:
+      - "5678"
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
