@@ -70,6 +70,67 @@ load_env() {
     DOCKER_ROOT="${DOCKER_ROOT:-/opt/docker}"
 }
 
+# _ask <varname> <prompt> : read a value, defaulting to the variable's current
+# value (shown in brackets). Used by setup_env_interactive.
+_ask() {
+    local __var="$1" __prompt="$2" __default="${!1:-}" __input
+    read -r -p "  ${__prompt} [${__default}]: " __input
+    printf -v "$__var" '%s' "${__input:-$__default}"
+}
+
+# _set_env_value <file> <key> <value> : replace KEY=... in file, or append it.
+_set_env_value() {
+    local file="$1" key="$2" val="$3"
+    if grep -qE "^${key}=" "$file"; then
+        # '|' delimiter avoids clashing with '/' in values (e.g. timezones).
+        sed -i "s|^${key}=.*|${key}=${val}|" "$file"
+    else
+        printf '%s=%s\n' "$key" "$val" >> "$file"
+    fi
+}
+
+# setup_env_interactive : create ${DOCKER_ROOT}/.env on first run.
+# Interactive (TTY) -> prompt for the central values using .env.example as the
+# default source. Non-interactive (no TTY or ASSUME_DEFAULTS=1) -> copy the
+# template unchanged so unattended installs still work.
+setup_env_interactive() {
+    local example="${REPO_ROOT}/.env.example"
+    local target; target="$(ENV_FILE)"
+    [[ -f "$example" ]] || die "Template not found: $example"
+
+    if [[ "${ASSUME_DEFAULTS:-0}" == "1" || ! -t 0 ]]; then
+        cp "$example" "$target"
+        log_warn "Non-interactive mode: created ${target} from defaults. Review DOMAIN/TIMEZONE before production use."
+        return 0
+    fi
+
+    # Load the template values as defaults for the prompts.
+    local DOMAIN TIMEZONE N8N_SUBDOMAIN GITEA_SUBDOMAIN SEMAPHORE_SUBDOMAIN \
+          GITEA_SSH_PORT NPM_HTTP_PORT NPM_ADMIN_PORT NPM_HTTPS_PORT
+    set -a; # shellcheck disable=SC1090
+    . "$example"; set +a
+
+    log_info "First-time configuration - press Enter to accept each [default]:"
+    _ask DOMAIN             "Base domain"
+    _ask TIMEZONE           "Timezone"
+    _ask N8N_SUBDOMAIN      "n8n subdomain"
+    _ask GITEA_SUBDOMAIN    "Gitea subdomain"
+    _ask SEMAPHORE_SUBDOMAIN "Semaphore subdomain"
+    _ask GITEA_SSH_PORT     "Gitea SSH port"
+    _ask NPM_HTTP_PORT      "NPM HTTP port"
+    _ask NPM_ADMIN_PORT     "NPM admin port"
+    _ask NPM_HTTPS_PORT     "NPM HTTPS port"
+
+    # Start from the template, then override the prompted keys.
+    cp "$example" "$target"
+    local k
+    for k in DOMAIN TIMEZONE N8N_SUBDOMAIN GITEA_SUBDOMAIN SEMAPHORE_SUBDOMAIN \
+             GITEA_SSH_PORT NPM_HTTP_PORT NPM_ADMIN_PORT NPM_HTTPS_PORT; do
+        _set_env_value "$target" "$k" "${!k}"
+    done
+    log_ok "Configuration written to ${target}"
+}
+
 # --- Secrets ----------------------------------------------------------------
 # gen_secret [bytes] : URL-safe random secret (base64, default 32 bytes).
 gen_secret() {

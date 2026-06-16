@@ -9,8 +9,12 @@ workflow.
 ```bash
 git clone <your-repo-url> labmaster
 cd labmaster
-sudo ./install.sh
+sudo ./install.sh        # or: sudo bash install.sh
 ```
+
+On first run the installer prompts interactively for `DOMAIN`, `TIMEZONE`,
+subdomains and ports (defaults from `.env.example`). For unattended installs,
+set `ASSUME_DEFAULTS=1` to accept all defaults without prompting.
 
 ## What you get
 
@@ -47,6 +51,7 @@ LabMaster/
 ├── update.sh           # pull images + recreate stacks
 ├── backup.sh           # archive data, compose, secrets (+ DB dump)
 ├── restore.sh          # restore from an archive
+├── teardown.sh         # clean reset of the environment (test helper)
 ├── .env.example        # central configuration template
 ├── lib/common.sh       # shared bash helpers
 ├── compose/<service>/  # one docker-compose.yml per service

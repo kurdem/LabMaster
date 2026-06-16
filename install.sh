@@ -73,11 +73,11 @@ fi
 # -----------------------------------------------------------------------------
 log_step "5/9 Preparing configuration and directories"
 
-# Stage runtime .env from the example if it does not exist yet, then load it.
+# Create the runtime .env on first run (interactive prompt, or template copy
+# when running non-interactively), then load it.
 mkdir -p "${DOCKER_ROOT}"
 if [[ ! -f "$(ENV_FILE)" ]]; then
-    cp "${SCRIPT_DIR}/.env.example" "$(ENV_FILE)"
-    log_warn "Created $(ENV_FILE) from .env.example - REVIEW DOMAIN/TIMEZONE before production use."
+    setup_env_interactive
 fi
 load_env
 
@@ -122,9 +122,16 @@ log_ok "Directory structure ready."
 # -----------------------------------------------------------------------------
 log_step "6/9 Deploying compose files and scripts"
 cp -r "${SCRIPT_DIR}/compose/." "${DOCKER_ROOT}/compose/"
+# Deploy the shared library and operational scripts so they can also be run
+# from /opt/docker (e.g. via cron). The scripts resolve lib/common.sh from here.
+mkdir -p "${DOCKER_ROOT}/lib"
+cp "${SCRIPT_DIR}/lib/common.sh" "${DOCKER_ROOT}/lib/common.sh"
 cp "${SCRIPT_DIR}/scripts/"*.sh "${DOCKER_ROOT}/scripts/" 2>/dev/null || true
+for s in backup.sh restore.sh update.sh teardown.sh; do
+    [[ -f "${SCRIPT_DIR}/${s}" ]] && cp "${SCRIPT_DIR}/${s}" "${DOCKER_ROOT}/scripts/"
+done
 chmod +x "${DOCKER_ROOT}/scripts/"*.sh 2>/dev/null || true
-log_ok "Compose stacks and scripts copied."
+log_ok "Compose stacks, library and scripts copied."
 
 # -----------------------------------------------------------------------------
 # 7. Start the containers

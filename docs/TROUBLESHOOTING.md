@@ -60,6 +60,21 @@ docker compose --project-name <stack> \
 # sudo rm -rf /opt/docker/data/<stack>
 ```
 
+## Resetting the whole environment (test cleanup)
+
+`teardown.sh` tears the environment down so you can re-run `install.sh` from a
+clean state. It keeps `.env`/`.secrets.env` and Docker itself.
+
+```bash
+sudo ./teardown.sh            # stop/remove containers + 'proxy' network (keeps data)
+sudo ./teardown.sh --volumes  # also remove compose volumes
+sudo ./teardown.sh --data     # also delete /opt/docker/data/*
+sudo ./teardown.sh --all --yes # full reset, no prompt
+```
+
+It prints exactly what it will remove and asks for confirmation (unless
+`--yes`). After teardown: `sudo ./install.sh` to provision again.
+
 ## Adding a new stack
 
 1. Create `compose/<service>/docker-compose.yml`:
