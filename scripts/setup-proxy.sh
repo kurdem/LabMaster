@@ -79,11 +79,11 @@ get_token() {
 }
 
 log_step "Authenticating with NPM"
-TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD")"
+TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD" || true)"
 
 if [[ -z "$TOKEN" ]]; then
     # Maybe still on the factory default -> claim the account.
-    TOKEN="$(get_token "$DEFAULT_EMAIL" "$DEFAULT_PASS")"
+    TOKEN="$(get_token "$DEFAULT_EMAIL" "$DEFAULT_PASS" || true)"
     [[ -n "$TOKEN" ]] || die "Cannot authenticate to NPM. The admin password may have been changed manually; update NPM_ADMIN_PASSWORD in .secrets.env or reset NPM."
 
     log_info "First run detected - configuring the admin account."
@@ -99,7 +99,7 @@ if [[ -z "$TOKEN" ]]; then
         -d "$(jq -n --arg c "$DEFAULT_PASS" --arg s "$NPM_ADMIN_PASSWORD" '{type:"password", current:$c, secret:$s}')" \
         >/dev/null
     log_ok "Admin account set to ${ADMIN_EMAIL} with the generated password."
-    TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD")"
+    TOKEN="$(get_token "$ADMIN_EMAIL" "$NPM_ADMIN_PASSWORD" || true)"
     [[ -n "$TOKEN" ]] || die "Re-authentication after password change failed."
 fi
 AUTH=(-H "Authorization: Bearer ${TOKEN}")
