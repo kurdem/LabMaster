@@ -92,7 +92,12 @@ It prints exactly what it will remove and asks for confirmation (unless
   HTTP response for the default credentials to help diagnose. Fix by either:
   - setting `NPM_ADMIN_PASSWORD` in `/opt/docker/.secrets.env` to the password
     you chose (only works if the admin email is `admin@<domain>`), or
-  - **resetting NPM to factory defaults** (nothing valuable is configured yet):
+  - **resetting NPM to factory defaults** (nothing valuable is configured yet) —
+    easiest via the built-in flag:
+    ```bash
+    sudo /opt/docker/scripts/setup-proxy.sh --reset-npm
+    ```
+    or manually:
     ```bash
     P="--project-name nginx-proxy-manager --env-file /opt/docker/.env --env-file /opt/docker/.secrets.env -f /opt/docker/compose/nginx-proxy-manager/docker-compose.yml"
     docker compose $P down

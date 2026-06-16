@@ -3,7 +3,12 @@
 # setup-proxy.sh - Generate a self-signed wildcard certificate, upload it to
 # Nginx Proxy Manager, and create the proxy hosts for the enabled services.
 #
-#   sudo ./setup-proxy.sh
+#   sudo ./setup-proxy.sh [--reset-npm] [--yes]
+#
+#   --reset-npm  Wipe NPM's config DB first (factory reset), then configure it.
+#                Use when the NPM admin was changed manually and the password is
+#                unknown. Prompts for confirmation unless --yes is given.
+#   --yes, -y    Skip the confirmation prompt.
 #
 # Idempotent: re-running reuses the existing certificate and skips proxy hosts
 # that already exist. Requires the NPM stack to be running. Uses curl/jq/openssl.
@@ -19,6 +24,17 @@ for _cand in "${SCRIPT_DIR}/lib/common.sh" "${SCRIPT_DIR}/../lib/common.sh" "/op
     [[ -r "$_cand" ]] && { . "$_cand"; _COMMON_LOADED=1; break; }
 done
 [[ -n "${_COMMON_LOADED:-}" ]] || { echo "[FAIL] lib/common.sh not found." >&2; exit 1; }
+
+RESET_NPM=0
+ASSUME_YES=0
+for arg in "$@"; do
+    case "$arg" in
+        --reset-npm) RESET_NPM=1 ;;
+        --yes|-y)    ASSUME_YES=1 ;;
+        -h|--help)   grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "Unknown option: $arg (try --help)" >&2; exit 1 ;;
+    esac
+done
 
 require_root
 load_env
@@ -54,6 +70,22 @@ else
         -addext "subjectAltName=DNS:${DOMAIN},DNS:*.${DOMAIN}" 2>/dev/null
     chmod 600 "$KEY"
     log_ok "Generated self-signed wildcard for *.${DOMAIN} (valid 10 years)."
+fi
+
+# -----------------------------------------------------------------------------
+# 1b. Optional: reset NPM to factory defaults (--reset-npm)
+# -----------------------------------------------------------------------------
+if [[ "$RESET_NPM" == "1" ]]; then
+    log_step "Resetting NPM to factory defaults"
+    log_warn "This wipes NPM's config DB at ${DOCKER_ROOT}/data/nginx-proxy-manager/data (proxy hosts, NPM users)."
+    if [[ "$ASSUME_YES" -ne 1 ]]; then
+        read -r -p "Proceed with NPM reset? [y/N] " ans
+        [[ "${ans:-N}" =~ ^[Yy]$ ]] || die "Aborted by user."
+    fi
+    compose_cmd nginx-proxy-manager down || true
+    rm -rf "${DOCKER_ROOT:?}/data/nginx-proxy-manager/data/"* 2>/dev/null || true
+    compose_cmd nginx-proxy-manager up -d
+    log_ok "NPM reset; it will re-seed the factory admin on startup."
 fi
 
 # -----------------------------------------------------------------------------
