@@ -55,13 +55,18 @@ Secrets (passwords, encryption keys) are generated separately into
 ## 3. Post-install
 
 1. **DNS:** point `n8n.<domain>`, `git.<domain>`, `automation.<domain>` to the host.
-2. **Nginx Proxy Manager:** open `http://<host-ip>:81`.
-   - Default login: `admin@example.com` / `changeme` → **change it immediately**.
-   - Add a Proxy Host per service, forwarding to the container name and port:
-     - `n8n` → `n8n:5678`
-     - `gitea` → `gitea:3000`
-     - `semaphore` → `semaphore:3000`
-   - Request Let's Encrypt certificates in the SSL tab.
+2. **Nginx Proxy Manager** — choose one:
+   - **Automatic (recommended for a quick start):**
+     ```bash
+     sudo /opt/docker/scripts/setup-proxy.sh
+     ```
+     Generates a self-signed wildcard cert, uploads it to NPM, claims the admin
+     account (`admin@<domain>` + `NPM_ADMIN_PASSWORD` from `.secrets.env`) and
+     creates all proxy hosts. Browsers will warn about the self-signed cert.
+   - **Manual:** open `http://<host-ip>:81` (default `admin@example.com` /
+     `changeme` → change immediately), add a Proxy Host per service forwarding to
+     the container name/port (`n8n:5678`, `gitea:3000`, `semaphore:3000`) and
+     request Let's Encrypt certificates in the SSL tab.
 3. **Semaphore:** log in as `admin` with the password from
    `/opt/docker/.secrets.env` (`SEMAPHORE_ADMIN_PASSWORD`).
 4. **Gitea:** complete the web setup at `https://git.<domain>`.
