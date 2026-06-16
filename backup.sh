@@ -11,8 +11,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/common.sh
-. "${SCRIPT_DIR}/lib/common.sh"
+# Resolve lib/common.sh whether run from the repo or from /opt/docker/scripts.
+for _cand in "${SCRIPT_DIR}/lib/common.sh" "${SCRIPT_DIR}/../lib/common.sh" "/opt/docker/lib/common.sh"; do
+    # shellcheck source=lib/common.sh
+    [[ -r "$_cand" ]] && { . "$_cand"; _COMMON_LOADED=1; break; }
+done
+[[ -n "${_COMMON_LOADED:-}" ]] || { echo "[FAIL] lib/common.sh not found." >&2; exit 1; }
 
 require_root
 load_env

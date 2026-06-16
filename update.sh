@@ -8,8 +8,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/common.sh
-. "${SCRIPT_DIR}/lib/common.sh"
+# Resolve lib/common.sh whether run from the repo or from /opt/docker/scripts.
+for _cand in "${SCRIPT_DIR}/lib/common.sh" "${SCRIPT_DIR}/../lib/common.sh" "/opt/docker/lib/common.sh"; do
+    # shellcheck source=lib/common.sh
+    [[ -r "$_cand" ]] && { . "$_cand"; _COMMON_LOADED=1; break; }
+done
+[[ -n "${_COMMON_LOADED:-}" ]] || { echo "[FAIL] lib/common.sh not found." >&2; exit 1; }
 
 require_root
 load_env
@@ -18,9 +22,15 @@ load_env
 if git -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     log_step "Updating project repository"
     git -C "${SCRIPT_DIR}" pull --ff-only || log_warn "git pull skipped/failed; continuing."
-    # Re-sync compose files & scripts to the runtime location.
+    # Re-sync compose files, library and scripts to the runtime location.
     cp -r "${SCRIPT_DIR}/compose/." "${DOCKER_ROOT}/compose/"
+    mkdir -p "${DOCKER_ROOT}/lib"
+    cp "${SCRIPT_DIR}/lib/common.sh" "${DOCKER_ROOT}/lib/common.sh"
     cp "${SCRIPT_DIR}/scripts/"*.sh "${DOCKER_ROOT}/scripts/" 2>/dev/null || true
+    for s in backup.sh restore.sh update.sh teardown.sh; do
+        [[ -f "${SCRIPT_DIR}/${s}" ]] && cp "${SCRIPT_DIR}/${s}" "${DOCKER_ROOT}/scripts/"
+    done
+    chmod +x "${DOCKER_ROOT}/scripts/"*.sh 2>/dev/null || true
 fi
 
 log_step "Pulling images and recreating stacks"
