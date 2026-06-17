@@ -159,6 +159,51 @@ ensure_secret() {
     log_info "Added missing secret ${key} to ${file}"
 }
 
+# --- Semaphore image selection ----------------------------------------------
+# Semaphore executes its tasks inside the server container (no separate runner
+# in this setup), so PowerShell support depends on which image tag is used.
+# The PowerShell-enabled images only exist as pinned tags of the form
+# vX.Y.Z-powershellN.N.N - there is no rolling "latest-powershell" tag, and
+# plain "latest" is the thin image WITHOUT PowerShell.
+
+# resolve_semaphore_powershell_tag : echo the newest STABLE -powershell tag from
+# Docker Hub (alpha/beta excluded). Returns non-zero if none could be resolved.
+resolve_semaphore_powershell_tag() {
+    local api="https://hub.docker.com/v2/repositories/semaphoreui/semaphore/tags/?page_size=100"
+    local tag
+    tag="$(curl -fsSL "$api" 2>/dev/null \
+        | jq -r '.results[].name' 2>/dev/null \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-powershell[0-9.]+$' \
+        | sort -V | tail -n1)"
+    [[ -n "$tag" ]] || return 1
+    printf '%s\n' "$tag"
+}
+
+# ensure_semaphore_image_tag : keep SEMAPHORE_IMAGE_TAG pointed at a PowerShell
+# image. When SEMAPHORE_IMAGE_AUTO=1 (default) resolve the newest stable tag and
+# persist it to the runtime .env; on failure keep the existing/default value and
+# warn. When SEMAPHORE_IMAGE_AUTO=0 leave the manually pinned value untouched.
+ensure_semaphore_image_tag() {
+    local target; target="$(ENV_FILE)"
+    [[ -f "$target" ]] || return 0
+    if [[ "${SEMAPHORE_IMAGE_AUTO:-1}" != "1" ]]; then
+        log_info "SEMAPHORE_IMAGE_AUTO=0 - keeping pinned SEMAPHORE_IMAGE_TAG=${SEMAPHORE_IMAGE_TAG:-<unset>}."
+        return 0
+    fi
+    local tag
+    if tag="$(resolve_semaphore_powershell_tag)"; then
+        if [[ "$tag" != "${SEMAPHORE_IMAGE_TAG:-}" ]]; then
+            _set_env_value "$target" SEMAPHORE_IMAGE_TAG "$tag"
+            export SEMAPHORE_IMAGE_TAG="$tag"
+            log_ok "Semaphore PowerShell image set to ${tag}."
+        else
+            log_ok "Semaphore PowerShell image already current (${tag})."
+        fi
+    else
+        log_warn "Could not resolve latest Semaphore PowerShell tag (network/API?); keeping SEMAPHORE_IMAGE_TAG=${SEMAPHORE_IMAGE_TAG:-<default>}."
+    fi
+}
+
 # --- Docker helpers ---------------------------------------------------------
 # compose_cmd <service> <args...> : run docker compose for a stack using the
 # central env + secrets files.

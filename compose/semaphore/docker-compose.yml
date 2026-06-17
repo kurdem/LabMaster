@@ -21,7 +21,7 @@ services:
       retries: 5
 
   semaphore:
-    image: semaphoreui/semaphore:latest
+    image: semaphoreui/semaphore:${SEMAPHORE_IMAGE_TAG:-v2.18.12-powershell7.5.0}
     container_name: semaphore
     restart: unless-stopped
     depends_on:

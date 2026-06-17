@@ -51,6 +51,22 @@ Ensure `SEMAPHORE_DB_PASSWORD` matches in `.secrets.env` and that the
 `semaphore-db` container is healthy before `semaphore` starts (handled by the
 `depends_on: condition: service_healthy`).
 
+## Semaphore PowerShell image / tag resolution
+
+Semaphore uses the PowerShell-enabled image, chosen by `SEMAPHORE_IMAGE_TAG` in
+`/opt/docker/.env`. `install.sh`/`update.sh` auto-resolve the newest stable
+`*-powershell` tag from Docker Hub. If the host has no internet access to the
+Docker Hub API, resolution is skipped with a warning and the existing/default
+tag is kept. To set it by hand, edit `.env`:
+
+```ini
+SEMAPHORE_IMAGE_AUTO=0
+SEMAPHORE_IMAGE_TAG=v2.18.12-powershell7.5.0
+```
+
+then `sudo /opt/docker/scripts/update.sh` (or re-run `install.sh`). List
+available tags at https://hub.docker.com/r/semaphoreui/semaphore/tags.
+
 ## Resetting a stack (destructive)
 
 ```bash

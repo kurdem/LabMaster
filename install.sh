@@ -106,6 +106,11 @@ load_env
 # Backfill secrets introduced after a host was first provisioned (idempotent).
 ensure_secret NPM_ADMIN_PASSWORD "$(gen_secret 20)"
 
+# Select the Semaphore image with PowerShell support (auto-resolve newest stable
+# -powershell tag unless SEMAPHORE_IMAGE_AUTO=0). Writes SEMAPHORE_IMAGE_TAG to
+# the runtime .env so the semaphore stack picks it up in step 7.
+ensure_semaphore_image_tag
+
 # Directory structure under ${DOCKER_ROOT}.
 log_info "Creating directory tree under ${DOCKER_ROOT}"
 mkdir -p \
