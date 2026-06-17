@@ -18,6 +18,10 @@ done
 require_root
 load_env
 
+# Bump the Semaphore image to the newest stable PowerShell tag (unless pinned via
+# SEMAPHORE_IMAGE_AUTO=0) before pulling, so updates keep PowerShell support.
+ensure_semaphore_image_tag
+
 # Pull repo changes if this is a git checkout.
 if git -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     log_step "Updating project repository"

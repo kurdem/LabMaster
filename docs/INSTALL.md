@@ -88,7 +88,10 @@ Secrets (passwords, encryption keys) are generated separately into
      the container name/port (`n8n:5678`, `gitea:3000`, `semaphore:3000`) and
      request Let's Encrypt certificates in the SSL tab.
 3. **Semaphore:** log in as `admin` with the password from
-   `/opt/docker/.secrets.env` (`SEMAPHORE_ADMIN_PASSWORD`).
+   `/opt/docker/.secrets.env` (`SEMAPHORE_ADMIN_PASSWORD`). By default Semaphore
+   runs the **PowerShell-enabled** image: `install.sh`/`update.sh` auto-resolve
+   the newest stable `*-powershell` tag into `SEMAPHORE_IMAGE_TAG` (set
+   `SEMAPHORE_IMAGE_AUTO=0` in `.env` to pin a tag manually).
 4. **Gitea:** complete the web setup at `https://git.<domain>`.
 5. **Firewall (optional):** `sudo /opt/docker/scripts/firewall.sh` then `ufw enable`.
 

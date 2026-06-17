@@ -98,6 +98,14 @@ STACKS="nginx-proxy-manager gitea n8n semaphore"
 **Secrets are never hardcoded.** On first install, `install.sh` generates them
 into `/opt/docker/.secrets.env`. Both `.env` and `.secrets.env` are git-ignored.
 
+**Semaphore PowerShell image.** Semaphore runs tasks inside its own container,
+so PowerShell support comes from the image tag. There is no rolling
+`latest-powershell` tag, so by default (`SEMAPHORE_IMAGE_AUTO=1`) `install.sh`
+and `update.sh` auto-resolve the newest **stable** `*-powershell` tag and write
+it to `SEMAPHORE_IMAGE_TAG` in `.env`. To pin a specific version (or a
+non-PowerShell image), set `SEMAPHORE_IMAGE_AUTO=0` and `SEMAPHORE_IMAGE_TAG`
+manually.
+
 ## Documentation
 
 - [docs/INSTALL.md](docs/INSTALL.md) — installation walkthrough
