@@ -37,6 +37,9 @@ if git -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     chmod +x "${DOCKER_ROOT}/scripts/"*.sh 2>/dev/null || true
 fi
 
+# Pick up stacks newly shipped by this update (additive; respects STACKS_AUTO=0).
+sync_stacks
+
 log_step "Pulling images and recreating stacks"
 for stack in $(stacks_list); do
     [[ -f "${DOCKER_ROOT}/compose/${stack}/docker-compose.yml" ]] || continue
