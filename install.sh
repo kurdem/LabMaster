@@ -123,7 +123,8 @@ mkdir -p \
     "${DOCKER_ROOT}/data/nginx-proxy-manager/custom-ssl" \
     "${DOCKER_ROOT}/data/semaphore/data" \
     "${DOCKER_ROOT}/data/semaphore/postgres" \
-    "${DOCKER_ROOT}/data/gitea"
+    "${DOCKER_ROOT}/data/gitea" \
+    "${DOCKER_ROOT}/data/dockhand"
 log_ok "Directory structure ready."
 
 # Fix ownership of bind mounts for containers that run as a non-root user and

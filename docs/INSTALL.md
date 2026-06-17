@@ -93,7 +93,10 @@ Secrets (passwords, encryption keys) are generated separately into
    the newest stable `*-powershell` tag into `SEMAPHORE_IMAGE_TAG` (set
    `SEMAPHORE_IMAGE_AUTO=0` in `.env` to pin a tag manually).
 4. **Gitea:** complete the web setup at `https://git.<domain>`.
-5. **Firewall (optional):** `sudo /opt/docker/scripts/firewall.sh` then `ufw enable`.
+5. **Dockhand:** Docker management UI at `https://dockhand.<domain>`. It mounts
+   the Docker socket (root-equivalent host control), so keep it behind the proxy
+   and never expose its port publicly.
+6. **Firewall (optional):** `sudo /opt/docker/scripts/firewall.sh` then `ufw enable`.
 
 ## Verifying
 

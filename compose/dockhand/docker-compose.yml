@@ -1,0 +1,22 @@
+# Dockhand - Docker management UI. Reached via the reverse proxy at
+# https://${DOCKHAND_SUBDOMAIN}.${DOMAIN} - no host ports exposed.
+# NOTE: mounts the Docker socket (full host control) - keep behind the proxy.
+services:
+  dockhand:
+    image: fnsys/dockhand:latest
+    container_name: dockhand
+    restart: unless-stopped
+    environment:
+      TZ: ${TIMEZONE}
+      DATA_DIR: /opt/dockhand
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DOCKER_ROOT}/data/dockhand:/opt/dockhand
+    expose:
+      - "3000"
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true

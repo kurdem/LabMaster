@@ -212,6 +212,7 @@ declare -A FORWARD=(
     [n8n]="${N8N_SUBDOMAIN:-n8n} n8n 5678 1"
     [gitea]="${GITEA_SUBDOMAIN:-git} gitea 3000 0"
     [semaphore]="${SEMAPHORE_SUBDOMAIN:-automation} semaphore 3000 1"
+    [dockhand]="${DOCKHAND_SUBDOMAIN:-dockhand} dockhand 3000 1"
 )
 
 EXISTING="$(curl -fsS "${NPM_API}/nginx/proxy-hosts" "${AUTH[@]}" | jq -r '.[].domain_names[]')"
