@@ -42,6 +42,7 @@ from `.secrets.env`. It is idempotent.
 | **n8n** | Workflow automation | `https://n8n.<domain>` (via proxy) |
 | **Semaphore** | Ansible/Terraform UI (+ PostgreSQL) | `https://automation.<domain>` |
 | **Gitea** | Self-hosted Git (SQLite) | `https://git.<domain>`, SSH on `:2222` |
+| **Dockhand** | Docker management UI (mounts Docker socket) | `https://dockhand.<domain>` (via proxy) |
 
 All containers join the shared external `proxy` network and use the
 `unless-stopped` restart policy.
@@ -55,7 +56,9 @@ flowchart LR
         NPM --> N8N[n8n :5678]
         NPM --> GITEA[Gitea :3000]
         NPM --> SEM[Semaphore :3000]
+        NPM --> DH[Dockhand :3000]
     end
+    DH -.->|/var/run/docker.sock| Docker[(Docker Engine)]
     SEM --> PG[(PostgreSQL)]
     Internet -->|SSH 2222| GITEA
     Admin -->|81| NPM
@@ -133,6 +136,9 @@ See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#adding-a-new-stack).
 - Enable unattended OS security updates (`unattended-upgrades`).
 - Ship backups off-site (rsync/restic/S3) — `/opt/docker/backups` is local only.
 - Add a monitoring stack (Prometheus + Grafana + Uptime Kuma).
-- Consider a Docker socket proxy and rootless Docker.
+- Consider a Docker socket proxy and rootless Docker. **Dockhand mounts
+  `/var/run/docker.sock`, which grants it root-equivalent control of the host** —
+  keep it behind the proxy (never expose port 3000 publicly), restrict who can
+  reach it, and front it with a docker-socket-proxy for read-only/limited access.
 - Change the NPM default admin login immediately after first start.
 - Restrict the NPM admin port (81) to a VPN/LAN, not the public internet.
