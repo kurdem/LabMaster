@@ -226,3 +226,48 @@ stacks_list() {
         find "${DOCKER_ROOT}/compose" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null
     fi
 }
+
+# sync_stacks : add newly shipped compose/<stack> folders to STACKS in the
+# runtime .env so project updates roll out without manual .env edits. Opt out
+# with STACKS_AUTO=0.
+#
+# Removal-aware via the bookkeeping key STACKS_KNOWN (every stack ever offered).
+# A shipped stack is "new" only if it is not in STACKS_KNOWN, so a stack you
+# delete from STACKS afterwards stays gone. STACKS_KNOWN is seeded from the
+# currently enabled STACKS on first run; consequently, if you had already
+# removed a default stack before this feature existed, it may be re-added once.
+sync_stacks() {
+    local target; target="$(ENV_FILE)"
+    [[ -f "$target" ]] || return 0
+    if [[ "${STACKS_AUTO:-1}" != "1" ]]; then
+        log_info "STACKS_AUTO=0 - not auto-updating STACKS."
+        return 0
+    fi
+    local compose_dir="${DOCKER_ROOT}/compose"
+    [[ -d "$compose_dir" ]] || return 0
+
+    # Seed the "known" set from the enabled stacks the first time we run.
+    local seeded=0
+    [[ -z "${STACKS_KNOWN:-}" ]] && { STACKS_KNOWN="${STACKS:-}"; seeded=1; }
+
+    local -a enabled=(${STACKS:-}) known=(${STACKS_KNOWN:-}) added=()
+    local s h found
+    for s in $(find "$compose_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort); do
+        [[ -f "${compose_dir}/${s}/docker-compose.yml" ]] || continue
+        found=0
+        for h in "${known[@]}"; do [[ "$h" == "$s" ]] && { found=1; break; }; done
+        if [[ "$found" -eq 0 ]]; then
+            enabled+=("$s"); known+=("$s"); added+=("$s")
+        fi
+    done
+
+    if [[ "${#added[@]}" -gt 0 ]]; then
+        _set_env_value "$target" STACKS "\"${enabled[*]}\""
+        export STACKS="${enabled[*]}"
+        log_ok "Added new stack(s) to STACKS: ${added[*]}"
+    fi
+    if [[ "${#added[@]}" -gt 0 || "$seeded" -eq 1 ]]; then
+        _set_env_value "$target" STACKS_KNOWN "\"${known[*]}\""
+        export STACKS_KNOWN="${known[*]}"
+    fi
+}

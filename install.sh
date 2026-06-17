@@ -151,6 +151,10 @@ done
 chmod +x "${DOCKER_ROOT}/scripts/"*.sh 2>/dev/null || true
 log_ok "Compose stacks, library and scripts copied."
 
+# Add any newly shipped stacks (e.g. after a project update) to STACKS so they
+# get deployed below without manual .env edits. Opt out with STACKS_AUTO=0.
+sync_stacks
+
 # -----------------------------------------------------------------------------
 # 7. Start the containers
 # -----------------------------------------------------------------------------
