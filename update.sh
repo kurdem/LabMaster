@@ -22,6 +22,10 @@ load_env
 # SEMAPHORE_IMAGE_AUTO=0) before pulling, so updates keep PowerShell support.
 ensure_semaphore_image_tag
 
+# One-time migration for hosts still running Nginx Proxy Manager: stop/remove it
+# (freeing ports 80/443) and drop it from STACKS before Caddy is rolled out.
+migrate_npm_to_caddy
+
 # Pull repo changes if this is a git checkout.
 if git -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     log_step "Updating project repository"
@@ -40,13 +44,26 @@ fi
 # Pick up stacks newly shipped by this update (additive; respects STACKS_AUTO=0).
 sync_stacks
 
+# Re-render the Caddy config so route/TLS changes (and newly added stacks) apply.
+generate_caddyfile
+
 log_step "Pulling images and recreating stacks"
 for stack in $(stacks_list); do
     [[ -f "${DOCKER_ROOT}/compose/${stack}/docker-compose.yml" ]] || continue
     log_info "Updating stack: ${stack}"
-    compose_cmd "$stack" pull
-    compose_cmd "$stack" up -d
+    if [[ "$stack" == "caddy" ]]; then
+        # Caddy's image is built locally with the DNS plugin: pull base layers
+        # best-effort (the local tag is not in a registry), then rebuild.
+        compose_cmd caddy pull 2>/dev/null || true
+        compose_cmd caddy up -d --build
+    else
+        compose_cmd "$stack" pull
+        compose_cmd "$stack" up -d
+    fi
 done
+
+# A Caddyfile-only change does not trigger a recreate above, so reload explicitly.
+reload_caddy
 
 log_step "Pruning unused images"
 docker image prune -f

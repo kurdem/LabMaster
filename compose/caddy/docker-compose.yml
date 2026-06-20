@@ -1,0 +1,38 @@
+# Caddy - reverse proxy with automatic TLS (ACME). Public entrypoint for all
+# services on ports 80/443. The image is built locally with a DNS plugin
+# (default caddy-dns/azure) so certificates are issued via the DNS-01 challenge
+# without inbound reachability. Routing is the generated Caddyfile (written by
+# generate_caddyfile / scripts/setup-caddy.sh); there is no admin UI. Backends
+# are reached by container name over the shared 'proxy' network.
+services:
+  caddy:
+    build:
+      context: .
+      args:
+        CADDY_DNS_MODULE: ${CADDY_DNS_MODULE:-github.com/caddy-dns/azure}
+    image: labmaster/caddy:local
+    container_name: caddy
+    restart: unless-stopped
+    environment:
+      TZ: ${TIMEZONE}
+      # Azure service-principal credentials for the DNS-01 challenge. Leave all
+      # of tenant/client/secret empty to use a Managed Identity instead, or set
+      # CADDY_TLS_MODE=internal to skip ACME entirely.
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_SUBSCRIPTION_ID: ${AZURE_SUBSCRIPTION_ID:-}
+      AZURE_RESOURCE_GROUP_NAME: ${AZURE_RESOURCE_GROUP_NAME:-}
+    ports:
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+    volumes:
+      - ${DOCKER_ROOT}/data/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${DOCKER_ROOT}/data/caddy/data:/data       # ACME certs + internal CA root
+      - ${DOCKER_ROOT}/data/caddy/config:/config
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
