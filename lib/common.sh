@@ -106,7 +106,7 @@ setup_env_interactive() {
 
     # Load the template values as defaults for the prompts.
     local DOMAIN TIMEZONE N8N_SUBDOMAIN GITEA_SUBDOMAIN SEMAPHORE_SUBDOMAIN \
-          GITEA_SSH_PORT NPM_HTTP_PORT NPM_ADMIN_PORT NPM_HTTPS_PORT
+          GITEA_SSH_PORT CADDY_HTTP_PORT CADDY_HTTPS_PORT CADDY_TLS_MODE
     set -a; # shellcheck disable=SC1090
     . "$example"; set +a
 
@@ -117,15 +117,15 @@ setup_env_interactive() {
     _ask GITEA_SUBDOMAIN    "Gitea subdomain"
     _ask SEMAPHORE_SUBDOMAIN "Semaphore subdomain"
     _ask GITEA_SSH_PORT     "Gitea SSH port"
-    _ask NPM_HTTP_PORT      "NPM HTTP port"
-    _ask NPM_ADMIN_PORT     "NPM admin port"
-    _ask NPM_HTTPS_PORT     "NPM HTTPS port"
+    _ask CADDY_HTTP_PORT    "Caddy HTTP port"
+    _ask CADDY_HTTPS_PORT   "Caddy HTTPS port"
+    _ask CADDY_TLS_MODE     "TLS mode (letsencrypt/internal)"
 
     # Start from the template, then override the prompted keys.
     cp "$example" "$target"
     local k
     for k in DOMAIN TIMEZONE N8N_SUBDOMAIN GITEA_SUBDOMAIN SEMAPHORE_SUBDOMAIN \
-             GITEA_SSH_PORT NPM_HTTP_PORT NPM_ADMIN_PORT NPM_HTTPS_PORT; do
+             GITEA_SSH_PORT CADDY_HTTP_PORT CADDY_HTTPS_PORT CADDY_TLS_MODE; do
         _set_env_value "$target" "$k" "${!k}"
     done
     log_ok "Configuration written to ${target}"
@@ -270,4 +270,139 @@ sync_stacks() {
         _set_env_value "$target" STACKS_KNOWN "\"${known[*]}\""
         export STACKS_KNOWN="${known[*]}"
     fi
+}
+
+# --- Reverse proxy (Caddy) --------------------------------------------------
+# Caddy replaces Nginx Proxy Manager: TLS is automatic (ACME) and configuration
+# is a generated Caddyfile, so there is no admin UI/API or admin password.
+
+# _caddy_azure_ready : true if the Azure DNS-01 challenge can be used. Both the
+# subscription and resource group are always required; tenant/client/secret may
+# be empty when a Managed Identity is used instead of a service principal.
+_caddy_azure_ready() {
+    [[ -n "${AZURE_SUBSCRIPTION_ID:-}" && -n "${AZURE_RESOURCE_GROUP_NAME:-}" ]]
+}
+
+# _caddy_dns_block : emit the provider-specific `dns` directive (indented for a
+# per-site `tls { ... }` block). Credentials are referenced as {$ENV} so they
+# stay in the container environment and never land in the Caddyfile on disk.
+_caddy_dns_block() {
+    case "${CADDY_DNS_PROVIDER:-azure}" in
+        azure)
+            printf '\t\tdns azure {\n'
+            printf '\t\t\tsubscription_id {$AZURE_SUBSCRIPTION_ID}\n'
+            printf '\t\t\tresource_group_name {$AZURE_RESOURCE_GROUP_NAME}\n'
+            printf '\t\t\ttenant_id {$AZURE_TENANT_ID}\n'
+            printf '\t\t\tclient_id {$AZURE_CLIENT_ID}\n'
+            printf '\t\t\tclient_secret {$AZURE_CLIENT_SECRET}\n'
+            printf '\t\t}\n'
+            ;;
+        *)
+            # Other caddy-dns/* providers read their own {$ENV} config; emit a
+            # bare directive and let the provider pick its environment up.
+            printf '\t\tdns %s\n' "${CADDY_DNS_PROVIDER}"
+            ;;
+    esac
+}
+
+# generate_caddyfile : render ${DOCKER_ROOT}/data/caddy/Caddyfile from the
+# enabled STACKS. TLS strategy follows CADDY_TLS_MODE (default letsencrypt) and
+# CADDY_DNS_PROVIDER (default azure); falls back to self-signed (tls internal)
+# when ACME-DNS is requested but its credentials are missing, so the proxy
+# always starts.
+generate_caddyfile() {
+    local out="${DOCKER_ROOT}/data/caddy/Caddyfile"
+    local mode="${CADDY_TLS_MODE:-letsencrypt}"
+    # Note '-' (not ':-'): an unset provider defaults to azure, but an explicitly
+    # empty CADDY_DNS_PROVIDER means "use the HTTP/TLS-ALPN challenge".
+    local provider="${CADDY_DNS_PROVIDER-azure}"
+    local email="${CADDY_ACME_EMAIL:-admin@${DOMAIN:-localhost}}"
+
+    [[ -n "${DOMAIN:-}" ]] || { log_warn "DOMAIN not set; skipping Caddyfile generation."; return 0; }
+
+    # Decide the effective TLS strategy: internal | acme-dns | acme-http.
+    local strategy
+    if [[ "$mode" == "internal" ]]; then
+        strategy="internal"
+    elif [[ -z "$provider" ]]; then
+        strategy="acme-http"
+    elif [[ "$provider" == "azure" ]] && _caddy_azure_ready; then
+        strategy="acme-dns"
+    elif [[ "$provider" == "azure" ]]; then
+        log_warn "CADDY_TLS_MODE=letsencrypt with azure DNS, but AZURE_SUBSCRIPTION_ID/AZURE_RESOURCE_GROUP_NAME are unset; falling back to self-signed (tls internal). Fill them in $(SECRETS_FILE), then run setup-caddy.sh."
+        strategy="internal"
+    else
+        strategy="acme-dns"   # other providers: trust the user's configuration
+    fi
+
+    # stack -> "subdomain_value forward_host forward_port" (Caddy handles
+    # WebSockets automatically, so no per-route flag is needed).
+    declare -A FORWARD=(
+        [n8n]="${N8N_SUBDOMAIN:-n8n} n8n 5678"
+        [gitea]="${GITEA_SUBDOMAIN:-git} gitea 3000"
+        [semaphore]="${SEMAPHORE_SUBDOMAIN:-automation} semaphore 3000"
+        [dockhand]="${DOCKHAND_SUBDOMAIN:-dockhand} dockhand 3000"
+    )
+
+    mkdir -p "$(dirname "$out")"
+    {
+        printf '# Managed by LabMaster (generate_caddyfile) - do not edit by hand.\n'
+        printf '# TLS strategy: %s\n\n' "$strategy"
+        if [[ "$strategy" == acme-* ]]; then
+            printf '{\n\temail %s\n' "$email"
+            [[ -n "${CADDY_ACME_CA:-}" ]] && printf '\tacme_ca %s\n' "$CADDY_ACME_CA"
+            printf '}\n\n'
+        fi
+        local stack sub host port
+        for stack in $(stacks_list); do
+            [[ -n "${FORWARD[$stack]:-}" ]] || continue
+            read -r sub host port <<<"${FORWARD[$stack]}"
+            printf '%s.%s {\n' "$sub" "$DOMAIN"
+            case "$strategy" in
+                internal)  printf '\ttls internal\n' ;;
+                acme-dns)  printf '\ttls {\n'; _caddy_dns_block; printf '\t}\n' ;;
+                acme-http) : ;;   # Caddy negotiates ACME (HTTP/TLS-ALPN) itself
+            esac
+            printf '\treverse_proxy %s:%s\n' "$host" "$port"
+            printf '}\n\n'
+        done
+    } > "$out"
+    log_ok "Caddyfile written to ${out} (TLS: ${strategy})."
+}
+
+# reload_caddy : hot-reload the running Caddy container after a Caddyfile change
+# (a file-only change does not trigger a compose recreate). No-op if not running.
+reload_caddy() {
+    docker ps --format '{{.Names}}' 2>/dev/null | grep -qx caddy || return 0
+    if docker exec caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+        log_ok "Caddy configuration reloaded."
+    else
+        log_warn "caddy reload failed; restarting the caddy stack."
+        compose_cmd caddy restart || true
+    fi
+}
+
+# migrate_npm_to_caddy : one-time migration on hosts provisioned with Nginx
+# Proxy Manager. Stops/removes the NPM stack (freeing ports 80/443), drops it
+# from STACKS/STACKS_KNOWN in the runtime .env, and keeps NPM's data dir. No-op
+# on fresh hosts (the runtime .env is never overwritten, hence the need for this).
+migrate_npm_to_caddy() {
+    local npm_dir="${DOCKER_ROOT}/compose/nginx-proxy-manager"
+    [[ -f "${npm_dir}/docker-compose.yml" ]] || return 0
+    local target; target="$(ENV_FILE)"
+    log_step "Migrating reverse proxy: Nginx Proxy Manager -> Caddy"
+    compose_cmd nginx-proxy-manager down 2>/dev/null || true
+    rm -rf "$npm_dir"
+    log_info "Removed the nginx-proxy-manager stack (data/nginx-proxy-manager is kept)."
+    if [[ -f "$target" ]]; then
+        local key cur s
+        for key in STACKS STACKS_KNOWN; do
+            cur="${!key:-}"
+            local -a kept=()
+            for s in $cur; do [[ "$s" == "nginx-proxy-manager" ]] || kept+=("$s"); done
+            _set_env_value "$target" "$key" "\"${kept[*]}\""
+            export "${key}=${kept[*]}"
+        done
+    fi
+    log_ok "Caddy now replaces NPM as the reverse proxy."
 }

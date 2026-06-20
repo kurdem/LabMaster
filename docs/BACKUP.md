@@ -5,9 +5,9 @@
 `backup.sh` produces a single timestamped archive in
 `/opt/docker/backups/labmaster-backup-<timestamp>.tar.gz` containing:
 
-- **Persistent data** — everything under `/opt/docker/data` (n8n, NPM,
-  Gitea, Semaphore), except the live Postgres data dir (a logical dump is
-  used instead for consistency).
+- **Persistent data** — everything under `/opt/docker/data` (n8n, Caddy,
+  Gitea, Semaphore, Dockhand), except the live Postgres data dir (a logical
+  dump is used instead for consistency).
 - **Compose stacks** — `/opt/docker/compose`.
 - **Configuration** — `.env` and `.secrets.env`.
 - **Database dump** — a consistent `pg_dump` of the Semaphore PostgreSQL DB.

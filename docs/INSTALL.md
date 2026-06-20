@@ -75,18 +75,32 @@ Secrets (passwords, encryption keys) are generated separately into
 ## 3. Post-install
 
 1. **DNS:** point `n8n.<domain>`, `git.<domain>`, `automation.<domain>` to the host.
-2. **Nginx Proxy Manager** — choose one:
-   - **Automatic (recommended for a quick start):**
-     ```bash
-     sudo /opt/docker/scripts/setup-proxy.sh
+2. **Reverse proxy (Caddy):** routes are generated from `STACKS` automatically —
+   there is no UI to configure. Pick a TLS strategy in `/opt/docker/.env`:
+   - **ACME with Azure DNS-01 (default, recommended).** Create an Azure service
+     principal with **DNS Zone Contributor** on your DNS zone, then put its
+     credentials in `/opt/docker/.secrets.env`:
+     ```ini
+     AZURE_TENANT_ID=...
+     AZURE_CLIENT_ID=...
+     AZURE_CLIENT_SECRET=...
+     AZURE_SUBSCRIPTION_ID=...
+     AZURE_RESOURCE_GROUP_NAME=...
      ```
-     Generates a self-signed wildcard cert, uploads it to NPM, claims the admin
-     account (`admin@<domain>` + `NPM_ADMIN_PASSWORD` from `.secrets.env`) and
-     creates all proxy hosts. Browsers will warn about the self-signed cert.
-   - **Manual:** open `http://<host-ip>:81` (default `admin@example.com` /
-     `changeme` → change immediately), add a Proxy Host per service forwarding to
-     the container name/port (`n8n:5678`, `gitea:3000`, `semaphore:3000`) and
-     request Let's Encrypt certificates in the SSL tab.
+     (Leave `tenant/client/secret` empty to use a Managed Identity.) Then
+     regenerate the config and reload Caddy:
+     ```bash
+     sudo /opt/docker/scripts/setup-caddy.sh
+     ```
+     Caddy obtains real certificates via DNS validation — no open ports needed.
+     Test against the staging CA first by uncommenting `CADDY_ACME_CA` in `.env`.
+   - **Self-signed (offline/homelab):** set `CADDY_TLS_MODE=internal` in `.env`
+     and run `setup-caddy.sh`. Browsers warn until you trust Caddy's root CA.
+   - **Other DNS providers / HTTP challenge:** set `CADDY_DNS_PROVIDER`
+     (+ matching `CADDY_DNS_MODULE`) for another `caddy-dns/*` plugin, or leave
+     `CADDY_DNS_PROVIDER` empty to use the HTTP/TLS-ALPN challenge (needs public
+     DNS for each subdomain and reachable ports 80/443). Re-run `update.sh` to
+     rebuild the image when changing the plugin module.
 3. **Semaphore:** log in as `admin` with the password from
    `/opt/docker/.secrets.env` (`SEMAPHORE_ADMIN_PASSWORD`). By default Semaphore
    runs the **PowerShell-enabled** image: `install.sh`/`update.sh` auto-resolve

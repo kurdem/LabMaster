@@ -2,9 +2,9 @@
 
 Automated, reproducible provisioning of a **Docker host on Ubuntu Server LTS**.
 After a fresh OS install, a **single command** turns the machine into a
-production-ready Docker host running Nginx Proxy Manager, n8n, Semaphore and
-Gitea — with persistent data, randomly generated secrets and a backup/restore
-workflow.
+production-ready Docker host running a Caddy reverse proxy, n8n, Semaphore,
+Gitea and Dockhand — with persistent data, randomly generated secrets,
+automatic TLS and a backup/restore workflow.
 
 ```bash
 sudo apt update && sudo apt install -y git   # if git is not installed yet
@@ -17,28 +17,37 @@ On first run the installer prompts interactively for `DOMAIN`, `TIMEZONE`,
 subdomains and ports (defaults from `.env.example`). For unattended installs,
 set `ASSUME_DEFAULTS=1` to accept all defaults without prompting.
 
-### Automatic proxy & certificate setup (optional)
+### Reverse proxy: Caddy with automatic TLS
 
-To skip the manual Nginx Proxy Manager clicking, run:
+Caddy is the single entrypoint on ports 80/443. It terminates TLS automatically
+and its routes are **generated from `STACKS`** — there is no admin UI to click.
+The config (`/opt/docker/data/caddy/Caddyfile`) is (re)written by `install.sh`
+and `update.sh`; to regenerate and hot-reload it after changes run:
 
 ```bash
-sudo /opt/docker/scripts/setup-proxy.sh
+sudo /opt/docker/scripts/setup-caddy.sh
 ```
 
-This generates a **self-signed wildcard certificate** (`*.<domain>`), uploads it
-to NPM, and creates the proxy hosts for all enabled services (SSL forced,
-WebSocket enabled). On first run it also claims the NPM admin account, replacing
-the factory default with `admin@<domain>` and the generated `NPM_ADMIN_PASSWORD`
-from `.secrets.env`. It is idempotent.
+TLS is configured in `.env`:
 
-> The certificate is self-signed, so browsers show a trust warning. For a public
-> deployment, request Let's Encrypt certificates in NPM instead.
+- **`CADDY_TLS_MODE=letsencrypt`** (default) — real certificates via ACME. The
+  default DNS provider is **Azure** (`CADDY_DNS_PROVIDER=azure`), which uses the
+  **DNS-01 challenge**: no inbound ports or public reachability required, and it
+  can issue wildcard certificates. The Caddy image is built locally with the
+  [`caddy-dns/azure`](https://github.com/caddy-dns/azure) plugin. Put the Azure
+  service-principal credentials (`AZURE_*`) in `/opt/docker/.secrets.env`, or
+  leave `tenant/client/secret` empty to use a Managed Identity. Switch providers
+  by setting `CADDY_DNS_PROVIDER` + `CADDY_DNS_MODULE` together.
+- **`CADDY_TLS_MODE=internal`** — self-signed certificates via Caddy's internal
+  CA (offline/homelab). Browsers warn until you trust Caddy's root CA. This is
+  also used as an automatic fallback if ACME-DNS credentials are missing, so the
+  proxy always starts.
 
 ## What you get
 
 | Service | Purpose | Access |
 |---------|---------|--------|
-| **Nginx Proxy Manager** | Reverse proxy + Let's Encrypt UI (SQLite) | Ports 80 / 81 / 443 |
+| **Caddy** | Reverse proxy, automatic TLS via ACME (Azure DNS-01 by default) | Ports 80 / 443 |
 | **n8n** | Workflow automation | `https://n8n.<domain>` (via proxy) |
 | **Semaphore** | Ansible/Terraform UI (+ PostgreSQL) | `https://automation.<domain>` |
 | **Gitea** | Self-hosted Git (SQLite) | `https://git.<domain>`, SSH on `:2222` |
@@ -51,17 +60,17 @@ All containers join the shared external `proxy` network and use the
 
 ```mermaid
 flowchart LR
-    Internet -->|80/443| NPM[Nginx Proxy Manager]
+    Internet -->|80/443| CADDY[Caddy reverse proxy]
     subgraph proxy network
-        NPM --> N8N[n8n :5678]
-        NPM --> GITEA[Gitea :3000]
-        NPM --> SEM[Semaphore :3000]
-        NPM --> DH[Dockhand :3000]
+        CADDY --> N8N[n8n :5678]
+        CADDY --> GITEA[Gitea :3000]
+        CADDY --> SEM[Semaphore :3000]
+        CADDY --> DH[Dockhand :3000]
     end
+    CADDY -.->|ACME DNS-01| AZ[(Azure DNS)]
     DH -.->|/var/run/docker.sock| Docker[(Docker Engine)]
     SEM --> PG[(PostgreSQL)]
     Internet -->|SSH 2222| GITEA
-    Admin -->|81| NPM
 ```
 
 ## Repository layout
@@ -95,7 +104,9 @@ N8N_SUBDOMAIN=n8n
 GITEA_SUBDOMAIN=git
 SEMAPHORE_SUBDOMAIN=automation
 GITEA_SSH_PORT=2222
-STACKS="nginx-proxy-manager gitea n8n semaphore"
+CADDY_TLS_MODE=letsencrypt
+CADDY_DNS_PROVIDER=azure
+STACKS="caddy gitea n8n semaphore dockhand"
 ```
 
 **Secrets are never hardcoded.** On first install, `install.sh` generates them
@@ -140,5 +151,8 @@ See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#adding-a-new-stack).
   `/var/run/docker.sock`, which grants it root-equivalent control of the host** —
   keep it behind the proxy (never expose port 3000 publicly), restrict who can
   reach it, and front it with a docker-socket-proxy for read-only/limited access.
-- Change the NPM default admin login immediately after first start.
-- Restrict the NPM admin port (81) to a VPN/LAN, not the public internet.
+- Protect the Azure credentials in `.secrets.env` and scope the service
+  principal to the minimum (DNS Zone Contributor on the relevant zone only).
+- For a quick offline/homelab start, `CADDY_TLS_MODE=internal` issues self-signed
+  certificates with no external dependencies (trust Caddy's root CA to silence
+  browser warnings).

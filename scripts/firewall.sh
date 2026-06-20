@@ -24,11 +24,10 @@ log_step "Configuring UFW rules"
 ufw default deny incoming
 ufw default allow outgoing
 
-ufw allow 22/tcp                       comment 'SSH (host)'
-ufw allow "${NPM_HTTP_PORT:-80}/tcp"   comment 'NPM HTTP'
-ufw allow "${NPM_HTTPS_PORT:-443}/tcp" comment 'NPM HTTPS'
-ufw allow "${NPM_ADMIN_PORT:-81}/tcp"  comment 'NPM admin UI'
-ufw allow "${GITEA_SSH_PORT:-2222}/tcp" comment 'Gitea SSH'
+ufw allow 22/tcp                         comment 'SSH (host)'
+ufw allow "${CADDY_HTTP_PORT:-80}/tcp"   comment 'Caddy HTTP'
+ufw allow "${CADDY_HTTPS_PORT:-443}/tcp" comment 'Caddy HTTPS'
+ufw allow "${GITEA_SSH_PORT:-2222}/tcp"  comment 'Gitea SSH'
 
 log_warn "Review the rules above. Enable with: ufw enable"
 log_info "Current (pending) rules:"

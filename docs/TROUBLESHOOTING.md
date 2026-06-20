@@ -9,12 +9,12 @@ docker compose --project-name <stack> \
   -f /opt/docker/compose/<stack>/docker-compose.yml ps
 ```
 
-## Port conflicts (80 / 443 / 81 / SSH)
+## Port conflicts (80 / 443 / SSH)
 
 A bind error like `address already in use` means another service holds the port.
 
 ```bash
-sudo ss -tulpn | grep -E ':(80|81|443|2222)\b'
+sudo ss -tulpn | grep -E ':(80|443|2222)\b'
 ```
 
 - Ubuntu's own SSH uses `22`; Gitea SSH is deliberately on `${GITEA_SSH_PORT}`.
@@ -31,9 +31,13 @@ Then restart the affected stack. (Re-running `install.sh` also fixes this.)
 ## Services not reachable via domain
 
 - Confirm DNS points at the host's public IP.
-- In Nginx Proxy Manager, the Proxy Host must forward to the **container name**
-  and internal port (e.g. `n8n` / `5678`), not `localhost`.
-- NPM and the target container must share the `proxy` network (they do by default).
+- Check the generated route exists in `/opt/docker/data/caddy/Caddyfile`
+  (`reverse_proxy <container>:<port>`). Regenerate with
+  `sudo /opt/docker/scripts/setup-caddy.sh` after changing `STACKS`/subdomains.
+- Caddy reaches backends by **container name** over the `proxy` network — the
+  target container must be on that network (it is by default) and running.
+- Inspect Caddy: `docker logs caddy` and
+  `docker exec caddy caddy validate --config /etc/caddy/Caddyfile`.
 
 ## n8n / Semaphore secrets
 
@@ -91,37 +95,38 @@ sudo ./teardown.sh --all --yes # full reset, no prompt
 It prints exactly what it will remove and asks for confirmation (unless
 `--yes`). After teardown: `sudo ./install.sh` to provision again.
 
-## Automatic proxy setup (setup-proxy.sh)
+## Reverse proxy (Caddy) and TLS
 
-`setup-proxy.sh` configures NPM via its API. Common issues:
+Caddy's config is generated at `/opt/docker/data/caddy/Caddyfile` from `STACKS`.
+Regenerate and hot-reload it with `sudo /opt/docker/scripts/setup-caddy.sh`.
 
-- **`NPM API not reachable`** — the `nginx-proxy-manager` container isn't running
-  yet. Check `docker logs nginx-proxy-manager` and retry.
-- **First admin user** — recent NPM versions (~2.11+, e.g. 2.15) no longer ship
-  the `admin@example.com` / `changeme` default. On a fresh NPM the script creates
-  the first admin (`admin@<domain>` + `NPM_ADMIN_PASSWORD`) automatically via the
-  API; older versions that still have the factory default are claimed instead.
-- **`Could not authenticate to NPM`** — NPM already has an admin that is **not**
-  `admin@<domain>` + `NPM_ADMIN_PASSWORD`. This usually means the admin was set
-  up manually (e.g. via the NPM web UI on port 81). Fix by either:
-  - setting `NPM_ADMIN_PASSWORD` in `/opt/docker/.secrets.env` to the password
-    you chose (only works if the admin email is `admin@<domain>`), or
-  - **resetting NPM** (nothing valuable is configured yet) — easiest via the flag:
-    ```bash
-    sudo /opt/docker/scripts/setup-proxy.sh --reset-npm
-    ```
-    or manually:
-    ```bash
-    P="--project-name nginx-proxy-manager --env-file /opt/docker/.env --env-file /opt/docker/.secrets.env -f /opt/docker/compose/nginx-proxy-manager/docker-compose.yml"
-    docker compose $P down
-    sudo rm -rf /opt/docker/data/nginx-proxy-manager/data/*
-    docker compose $P up -d
-    sleep 20 && sudo /opt/docker/scripts/setup-proxy.sh
-    ```
-- **Browser trust warning** — expected: the wildcard cert is self-signed. Import
-  it as trusted, or switch the proxy hosts to Let's Encrypt for a public setup.
-- **Re-running** is safe: the existing certificate and proxy hosts are detected
-  and skipped.
+```bash
+docker logs caddy                                              # ACME + routing logs
+docker exec caddy caddy validate --config /etc/caddy/Caddyfile # syntax check
+cat /opt/docker/data/caddy/Caddyfile                           # generated routes
+```
+
+- **Image build fails (xcaddy / plugin).** The Caddy image is built locally with
+  the DNS plugin (`CADDY_DNS_MODULE`, default `github.com/caddy-dns/azure`). The
+  build needs outbound internet to fetch Go modules. Rebuild explicitly:
+  `docker compose --project-name caddy -f /opt/docker/compose/caddy/docker-compose.yml build --no-cache`.
+- **No certificate issued (ACME DNS-01 / Azure).** Check `docker logs caddy` for
+  ACME errors. Common causes: missing/incorrect `AZURE_*` credentials in
+  `.secrets.env`, the service principal lacks **DNS Zone Contributor** on the
+  zone, the zone/resource group names are wrong, or DNS propagation is slow.
+  If credentials are missing entirely, generation falls back to `tls internal`
+  (self-signed) and warns — fill them in and re-run `setup-caddy.sh`.
+- **Let's Encrypt rate limits.** While testing, set `CADDY_ACME_CA` to the
+  staging endpoint in `.env` (issues untrusted certs but avoids rate limits),
+  then switch back to production and re-run `setup-caddy.sh`.
+- **Browser trust warning** — expected with `CADDY_TLS_MODE=internal`: the certs
+  are self-signed. Trust Caddy's root CA (`/opt/docker/data/caddy/data/caddy/pki`)
+  or switch to `letsencrypt` for publicly trusted certificates.
+- **Migrating from Nginx Proxy Manager.** `update.sh` runs `migrate_npm_to_caddy`
+  automatically: it stops/removes the old `nginx-proxy-manager` stack (freeing
+  ports 80/443) and drops it from `STACKS`. The old NPM data under
+  `data/nginx-proxy-manager` is kept and can be deleted once you're satisfied.
+- **Re-running** `setup-caddy.sh` is safe and idempotent.
 
 ## Adding a new stack
 

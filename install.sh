@@ -95,7 +95,6 @@ SEMAPHORE_ACCESS_KEY_ENCRYPTION=$(openssl rand -base64 32)
 SEMAPHORE_COOKIE_HASH=$(openssl rand -base64 32)
 SEMAPHORE_COOKIE_ENCRYPTION=$(openssl rand -base64 32)
 GITEA_ADMIN_PASSWORD=$(gen_secret 20)
-NPM_ADMIN_PASSWORD=$(gen_secret 20)
 EOF
     chmod 600 "$SECRETS"
     log_ok "Secrets written (chmod 600)."
@@ -103,8 +102,14 @@ else
     log_ok "Secrets file already present; keeping existing values."
 fi
 load_env
-# Backfill secrets introduced after a host was first provisioned (idempotent).
-ensure_secret NPM_ADMIN_PASSWORD "$(gen_secret 20)"
+# Azure DNS credentials for Caddy's ACME DNS-01 challenge. Created as empty
+# placeholders (idempotent) for the user to fill in; leave tenant/client/secret
+# empty to use a Managed Identity, or set CADDY_TLS_MODE=internal to skip ACME.
+ensure_secret AZURE_TENANT_ID ""
+ensure_secret AZURE_CLIENT_ID ""
+ensure_secret AZURE_CLIENT_SECRET ""
+ensure_secret AZURE_SUBSCRIPTION_ID ""
+ensure_secret AZURE_RESOURCE_GROUP_NAME ""
 
 # Select the Semaphore image with PowerShell support (auto-resolve newest stable
 # -powershell tag unless SEMAPHORE_IMAGE_AUTO=0). Writes SEMAPHORE_IMAGE_TAG to
@@ -118,9 +123,8 @@ mkdir -p \
     "${DOCKER_ROOT}/backups" \
     "${DOCKER_ROOT}/scripts" \
     "${DOCKER_ROOT}/data/n8n" \
-    "${DOCKER_ROOT}/data/nginx-proxy-manager/data" \
-    "${DOCKER_ROOT}/data/nginx-proxy-manager/letsencrypt" \
-    "${DOCKER_ROOT}/data/nginx-proxy-manager/custom-ssl" \
+    "${DOCKER_ROOT}/data/caddy/data" \
+    "${DOCKER_ROOT}/data/caddy/config" \
     "${DOCKER_ROOT}/data/semaphore/data" \
     "${DOCKER_ROOT}/data/semaphore/postgres" \
     "${DOCKER_ROOT}/data/gitea" \
@@ -155,6 +159,11 @@ log_ok "Compose stacks, library and scripts copied."
 # get deployed below without manual .env edits. Opt out with STACKS_AUTO=0.
 sync_stacks
 
+# Render the Caddy reverse-proxy config from the enabled stacks. Must happen
+# before the start loop because the Caddyfile is bind-mounted as a file and has
+# to exist (otherwise Docker would create a directory in its place).
+generate_caddyfile
+
 # -----------------------------------------------------------------------------
 # 7. Start the containers
 # -----------------------------------------------------------------------------
@@ -162,7 +171,11 @@ log_step "7/9 Starting containers"
 for stack in $(stacks_list); do
     if [[ -f "${DOCKER_ROOT}/compose/${stack}/docker-compose.yml" ]]; then
         log_info "Starting stack: ${stack}"
-        compose_cmd "$stack" up -d
+        if [[ "$stack" == "caddy" ]]; then
+            compose_cmd caddy up -d --build   # image is built locally (DNS plugin)
+        else
+            compose_cmd "$stack" up -d
+        fi
     else
         log_warn "No compose file for '${stack}', skipping."
     fi
@@ -187,27 +200,29 @@ cat <<EOF
 
 ${C_OK}${C_BOLD}LabMaster Docker host is ready.${C_RESET}
 
-  Reverse proxy admin : http://<host-ip>:${NPM_ADMIN_PORT}
-       NPM admin login : created by setup-proxy.sh as admin@${DOMAIN}
-                         (password in $(SECRETS_FILE) -> NPM_ADMIN_PASSWORD).
-                         Until then NPM has no admin (recent versions ship no
-                         default); create one in the UI or run setup-proxy.sh.
+  Reverse proxy : Caddy on ports ${CADDY_HTTP_PORT:-80}/${CADDY_HTTPS_PORT:-443}
+                  TLS is automatic. Mode: ${CADDY_TLS_MODE:-letsencrypt}
+                  (DNS provider: ${CADDY_DNS_PROVIDER:-azure}). Routes are
+                  generated from STACKS - no admin UI to configure.
 
-  Service URLs (configure proxy hosts in NPM, pointing to the container names):
+  Service URLs (auto-routed by Caddy to the container names):
     n8n        -> https://${N8N_SUBDOMAIN}.${DOMAIN}        (n8n:5678)
     Gitea      -> https://${GITEA_SUBDOMAIN}.${DOMAIN}      (gitea:3000)  SSH: ${GITEA_SSH_PORT}
     Semaphore  -> https://${SEMAPHORE_SUBDOMAIN}.${DOMAIN}  (semaphore:3000)
+    Dockhand   -> https://${DOCKHAND_SUBDOMAIN}.${DOMAIN}   (dockhand:3000)
 
   Semaphore admin user : admin
   Generated secrets    : $(SECRETS_FILE)  (chmod 600)
   Config file          : $(ENV_FILE)
 
   Next steps:
-    - Point your DNS records to this host's public IP.
-    - (Optional) auto-configure NPM: generate a self-signed wildcard cert and
-      create the proxy hosts for all services:
-          sudo ${DOCKER_ROOT}/scripts/setup-proxy.sh
-      (Otherwise add Proxy Hosts manually in NPM, e.g. with Let's Encrypt.)
+    - Point your DNS records to this host's public IP (or just the DNS zone if
+      using the Azure DNS-01 challenge).
+    - For ACME with Azure DNS (default): fill the AZURE_* credentials in
+      $(SECRETS_FILE) (or use a Managed Identity), then re-run:
+          sudo ${DOCKER_ROOT}/scripts/setup-caddy.sh
+      To use self-signed certs instead, set CADDY_TLS_MODE=internal in
+      $(ENV_FILE) and re-run setup-caddy.sh.
     - (Optional) harden the firewall: sudo ${DOCKER_ROOT}/scripts/firewall.sh
     - Set up backups: see docs/BACKUP.md
 
