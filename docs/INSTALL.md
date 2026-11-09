@@ -63,11 +63,24 @@ First-time configuration - press Enter to accept each [default]:
   Semaphore subdomain [automation]:
   Gitea SSH port [2222]:
   ...
+Select which services to deploy (caddy reverse proxy is always installed):
+  Deploy dockhand? [Y/n]:
+  Deploy gitea? [Y/n]: n
+  Deploy n8n? [Y/n]:
+  Deploy semaphore? [Y/n]:
 ```
 
+The service selection is **modular**: Caddy (the reverse proxy) is always
+installed; every other stack is opt-in (default yes). Deselected services are
+not deployed, and they stay deselected on later `install.sh`/`update.sh` runs
+(tracked via `STACKS_KNOWN`). To change the selection afterwards, edit `STACKS`
+in `/opt/docker/.env` and run `sudo ./update.sh` (removing a running service
+also needs `docker compose ... down` or `teardown.sh`).
+
 Pressing Enter keeps the default. For **unattended installs** (no terminal, or
-`ASSUME_DEFAULTS=1 sudo -E ./install.sh`), the template is copied unchanged —
-adjust `/opt/docker/.env` afterwards and re-run `sudo ./update.sh`.
+`ASSUME_DEFAULTS=1 sudo -E ./install.sh`), the template is copied unchanged (all
+services enabled) — adjust `/opt/docker/.env` afterwards and re-run
+`sudo ./update.sh`.
 
 Secrets (passwords, encryption keys) are generated separately into
 `/opt/docker/.secrets.env` and never need manual input.

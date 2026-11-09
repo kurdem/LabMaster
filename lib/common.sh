@@ -78,6 +78,16 @@ _ask() {
     printf -v "$__var" '%s' "${__input:-$__default}"
 }
 
+# _ask_bool <prompt> <default yes|no> : read a yes/no answer (default when empty)
+# and echo "1" for yes or "0" for no. Used for the modular stack selection.
+_ask_bool() {
+    local __prompt="$1" __default="${2:-yes}" __ans __hint
+    [[ "$__default" == "yes" ]] && __hint="[Y/n]" || __hint="[y/N]"
+    read -r -p "  ${__prompt} ${__hint}: " __ans
+    __ans="${__ans:-$__default}"
+    [[ "$__ans" =~ ^([Yy]([Ee][Ss])?)$ ]] && echo 1 || echo 0
+}
+
 # _set_env_value <file> <key> <value> : replace KEY=... in file, or append it.
 _set_env_value() {
     local file="$1" key="$2" val="$3"
@@ -121,6 +131,23 @@ setup_env_interactive() {
     _ask CADDY_HTTPS_PORT   "Caddy HTTPS port"
     _ask CADDY_TLS_MODE     "TLS mode (letsencrypt/internal)"
 
+    # Modular stack selection: caddy (reverse proxy) is always installed; every
+    # other compose/<stack> is offered for opt-in. Data-driven so stacks added
+    # later are offered automatically.
+    local -a optional=() selected=() s
+    for s in $(find "${REPO_ROOT}/compose" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort); do
+        [[ "$s" == "caddy" ]] && continue
+        optional+=("$s")
+    done
+    if [[ "${#optional[@]}" -gt 0 ]]; then
+        log_info "Select which services to deploy (caddy reverse proxy is always installed):"
+        for s in "${optional[@]}"; do
+            [[ "$(_ask_bool "Deploy ${s}?" yes)" == 1 ]] && selected+=("$s")
+        done
+    fi
+    local stacks_selected="caddy${selected[*]:+ ${selected[*]}}"
+    local stacks_known="caddy${optional[*]:+ ${optional[*]}}"
+
     # Start from the template, then override the prompted keys.
     cp "$example" "$target"
     local k
@@ -128,7 +155,12 @@ setup_env_interactive() {
              GITEA_SSH_PORT CADDY_HTTP_PORT CADDY_HTTPS_PORT CADDY_TLS_MODE; do
         _set_env_value "$target" "$k" "${!k}"
     done
+    # Persist the selection. STACKS_KNOWN lists every offered stack so sync_stacks
+    # treats a deselected one as "known" (already seen) and never re-adds it.
+    _set_env_value "$target" STACKS "\"${stacks_selected}\""
+    _set_env_value "$target" STACKS_KNOWN "\"${stacks_known}\""
     log_ok "Configuration written to ${target}"
+    log_ok "Enabled stacks: ${stacks_selected}"
 }
 
 # --- Secrets ----------------------------------------------------------------

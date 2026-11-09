@@ -14,8 +14,10 @@ sudo ./install.sh        # or: sudo bash install.sh
 ```
 
 On first run the installer prompts interactively for `DOMAIN`, `TIMEZONE`,
-subdomains and ports (defaults from `.env.example`). For unattended installs,
-set `ASSUME_DEFAULTS=1` to accept all defaults without prompting.
+subdomains and ports (defaults from `.env.example`), and lets you **deselect
+individual services** (Caddy is always installed). For unattended installs,
+set `ASSUME_DEFAULTS=1` to accept all defaults without prompting (all services
+enabled).
 
 ### Reverse proxy: Caddy with automatic TLS
 
