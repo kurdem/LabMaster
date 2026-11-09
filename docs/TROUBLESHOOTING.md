@@ -155,6 +155,11 @@ not reachable through Caddy.
   (`DNSStubListener=no` in `/etc/systemd/resolved.conf`, relink
   `/etc/resolv.conf` to `/run/systemd/resolve/resolv.conf`, then
   `sudo systemctl restart systemd-resolved`). See docs/INSTALL.md.
+- **NetBird won't connect:** check `docker logs netbird`. Usual causes are a
+  missing/invalid `NETBIRD_SETUP_KEY` (in `.secrets.env`), a wrong
+  `NETBIRD_MANAGEMENT_URL` (self-hosted control plane), or a missing
+  `/dev/net/tun` device on the host. Inspect peer state with
+  `docker exec netbird netbird status`.
 - **Disabling a host-network stack:** removing it from `STACKS` stops it being
   recreated, but does not stop an already-running container. Take it down with:
   ```bash

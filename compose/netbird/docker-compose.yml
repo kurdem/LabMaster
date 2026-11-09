@@ -1,0 +1,25 @@
+# NetBird agent (optional) - joins this host to a NetBird mesh VPN as a peer.
+# It needs a setup key (NETBIRD_SETUP_KEY in .secrets.env) and, for a self-hosted
+# control plane, a management URL (NETBIRD_MANAGEMENT_URL; default = NetBird
+# Cloud). Host networking + NET_ADMIN + /dev/net/tun are required for the
+# WireGuard interface, so it is NOT behind Caddy. Opt-in (ships a .optional
+# marker): set a setup key, then add "netbird" to STACKS to enable it.
+services:
+  netbird:
+    image: netbirdio/netbird:latest
+    container_name: netbird
+    hostname: ${NETBIRD_HOSTNAME:-labmaster}
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - SYS_RESOURCE
+    devices:
+      - /dev/net/tun
+    environment:
+      NB_SETUP_KEY: ${NETBIRD_SETUP_KEY}
+      NB_MANAGEMENT_URL: ${NETBIRD_MANAGEMENT_URL:-https://api.netbird.io:443}
+      NB_HOSTNAME: ${NETBIRD_HOSTNAME:-labmaster}
+    volumes:
+      - ${DOCKER_ROOT}/data/netbird:/var/lib/netbird
+    restart: unless-stopped

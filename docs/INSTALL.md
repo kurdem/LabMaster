@@ -155,6 +155,26 @@ selecting it during the interactive install). They are **not** reached via Caddy
    zones / the DHCP scope there. (Technitium runs with host networking, so DNS,
    DHCP and the console bind directly on the host — not behind Caddy.)
 
+### NetBird (mesh-VPN agent)
+
+Joins this host to a NetBird network as a peer (uses host networking + a
+WireGuard interface; not behind Caddy).
+
+1. Get a **setup key** from your NetBird dashboard (cloud or self-hosted) and put
+   it in `/opt/docker/.secrets.env`:
+   ```ini
+   NETBIRD_SETUP_KEY=nbp_xxxxxxxx
+   ```
+   For a self-hosted control plane, also set `NETBIRD_MANAGEMENT_URL` in `.env`
+   (default is NetBird Cloud). Optionally set `NETBIRD_HOSTNAME` (the peer name).
+2. Enable the stack: add `netbird` to `STACKS` in `/opt/docker/.env`, then
+   `sudo ./update.sh`.
+3. Check it connected:
+   ```bash
+   docker logs netbird
+   docker exec netbird netbird status
+   ```
+
 ## Verifying
 
 ```bash
