@@ -29,20 +29,36 @@ require_root() {
     fi
 }
 
-# check_os: verify the host is Ubuntu and warn if not an LTS release.
+# check_os: verify the host runs a supported distro (Ubuntu LTS, Debian, or
+# Raspberry Pi OS) and warn on 32-bit ARM where some images are 64-bit only.
 check_os() {
     [[ -r /etc/os-release ]] || die "Cannot read /etc/os-release - unsupported OS."
     # shellcheck disable=SC1091
     . /etc/os-release
-    if [[ "${ID:-}" != "ubuntu" ]]; then
-        die "Unsupported OS '${ID:-unknown}'. This project targets Ubuntu Server LTS."
-    fi
-    # LTS releases use an even year and the .04 release (e.g. 20.04, 22.04, 24.04).
-    if [[ ! "${VERSION_ID:-}" =~ ^(20|22|24|26)\.04$ ]]; then
-        log_warn "Ubuntu ${VERSION_ID:-?} is not a recognised LTS release; continuing anyway."
-    else
-        log_ok "Detected Ubuntu ${VERSION_ID} LTS (${VERSION_CODENAME:-})."
-    fi
+    case "${ID:-}" in
+        ubuntu)
+            # LTS releases use an even year and the .04 release (20.04, 22.04, ...).
+            if [[ ! "${VERSION_ID:-}" =~ ^(20|22|24|26)\.04$ ]]; then
+                log_warn "Ubuntu ${VERSION_ID:-?} is not a recognised LTS release; continuing anyway."
+            else
+                log_ok "Detected Ubuntu ${VERSION_ID} LTS (${VERSION_CODENAME:-})."
+            fi
+            ;;
+        debian|raspbian)
+            # Raspberry Pi OS reports ID=debian (64-bit) or ID=raspbian (32-bit).
+            log_ok "Detected ${PRETTY_NAME:-${ID} ${VERSION_ID:-}} (Debian-based) - supported."
+            ;;
+        *)
+            die "Unsupported OS '${ID:-unknown}'. This project targets Ubuntu Server LTS or Debian / Raspberry Pi OS."
+            ;;
+    esac
+    # Several images (e.g. Gitea) ship arm64 but not 32-bit ARM.
+    local arch; arch="$(uname -m)"
+    case "$arch" in
+        armv6l|armv7l|armhf)
+            log_warn "32-bit ARM (${arch}) detected; some images are 64-bit only. Use a 64-bit OS (e.g. Raspberry Pi OS 64-bit) for full support."
+            ;;
+    esac
 }
 
 # --- Paths / config ---------------------------------------------------------
@@ -220,6 +236,18 @@ ensure_semaphore_image_tag() {
     [[ -f "$target" ]] || return 0
     if [[ "${SEMAPHORE_IMAGE_AUTO:-1}" != "1" ]]; then
         log_info "SEMAPHORE_IMAGE_AUTO=0 - keeping pinned SEMAPHORE_IMAGE_TAG=${SEMAPHORE_IMAGE_TAG:-<unset>}."
+        return 0
+    fi
+    # PowerShell-enabled Semaphore images are published for amd64 only. On other
+    # architectures (e.g. arm64 Raspberry Pi) fall back to the plain multi-arch
+    # image so Semaphore runs at all - without PowerShell task support.
+    local arch; arch="$(uname -m)"
+    if [[ "$arch" != "x86_64" && "$arch" != "amd64" ]]; then
+        if [[ "${SEMAPHORE_IMAGE_TAG:-}" != "latest" ]]; then
+            _set_env_value "$target" SEMAPHORE_IMAGE_TAG "latest"
+            export SEMAPHORE_IMAGE_TAG="latest"
+        fi
+        log_warn "Architecture ${arch}: Semaphore PowerShell images are amd64-only; using 'latest' (no PowerShell)."
         return 0
     fi
     local tag

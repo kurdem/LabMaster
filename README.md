@@ -1,10 +1,10 @@
 # LabMaster — Docker-Host Bootstrap
 
-Automated, reproducible provisioning of a **Docker host on Ubuntu Server LTS**.
-After a fresh OS install, a **single command** turns the machine into a
-production-ready Docker host running a Caddy reverse proxy, n8n, Semaphore,
-Gitea and Dockhand — with persistent data, randomly generated secrets,
-automatic TLS and a backup/restore workflow.
+Automated, reproducible provisioning of a **Docker host on Ubuntu Server LTS,
+Debian, or Raspberry Pi OS (64-bit)**. After a fresh OS install, a **single
+command** turns the machine into a production-ready Docker host running a Caddy
+reverse proxy, n8n, Semaphore, Gitea and Dockhand — with persistent data,
+randomly generated secrets, automatic TLS and a backup/restore workflow.
 
 ```bash
 sudo apt update && sudo apt install -y git   # if git is not installed yet
@@ -120,7 +120,8 @@ so PowerShell support comes from the image tag. There is no rolling
 and `update.sh` auto-resolve the newest **stable** `*-powershell` tag and write
 it to `SEMAPHORE_IMAGE_TAG` in `.env`. To pin a specific version (or a
 non-PowerShell image), set `SEMAPHORE_IMAGE_AUTO=0` and `SEMAPHORE_IMAGE_TAG`
-manually.
+manually. On **ARM (Raspberry Pi)** the PowerShell images are not available
+(amd64-only), so the installer uses the plain multi-arch image automatically.
 
 ## Documentation
 

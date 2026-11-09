@@ -2,11 +2,18 @@
 
 ## Prerequisites
 
-- A fresh **Ubuntu Server LTS** (20.04 / 22.04 / 24.04) machine.
+- A fresh **Ubuntu Server LTS** (20.04 / 22.04 / 24.04), **Debian**, or
+  **Raspberry Pi OS** machine. For Raspberry Pi (4/5) use the **64-bit** OS —
+  some images (e.g. Gitea) are not published for 32-bit ARM.
 - Root or `sudo` access.
 - Outbound internet access (to fetch packages and images).
 - DNS records for your subdomains pointing to the host's public IP
   (can be configured after installation).
+
+> **Raspberry Pi / ARM note:** everything runs on arm64, with one caveat —
+> Semaphore's PowerShell-enabled image is amd64-only, so on ARM the installer
+> automatically uses the plain Semaphore image (Ansible/Terraform/Bash work;
+> PowerShell tasks do not). All other services are unaffected.
 
 ## 1. Get the project
 
