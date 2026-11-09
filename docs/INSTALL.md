@@ -132,6 +132,29 @@ Secrets (passwords, encryption keys) are generated separately into
    and never expose its port publicly.
 6. **Firewall (optional):** `sudo /opt/docker/scripts/firewall.sh` then `ufw enable`.
 
+## Optional stacks
+
+Some stacks ship **disabled** (they carry a `compose/<stack>/.optional` marker)
+because they use host networking and need host-level setup. Enable one by adding
+its name to `STACKS` in `/opt/docker/.env` and running `sudo ./update.sh` (or by
+selecting it during the interactive install). They are **not** reached via Caddy.
+
+### Technitium (DNS + DHCP)
+
+1. **Free up port 53.** On Ubuntu/Debian the host's `systemd-resolved` listens on
+   `:53` and must stop doing so before Technitium can bind it:
+   ```bash
+   sudo sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
+   sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+   sudo systemctl restart systemd-resolved
+   ```
+2. Enable the stack: add `technitium` to `STACKS` in `/opt/docker/.env`, then
+   `sudo ./update.sh`.
+3. Open the admin console at `http://<host>:5380` and log in as `admin` with
+   `TECHNITIUM_ADMIN_PASSWORD` from `/opt/docker/.secrets.env`. Configure DNS
+   zones / the DHCP scope there. (Technitium runs with host networking, so DNS,
+   DHCP and the console bind directly on the host — not behind Caddy.)
+
 ## Verifying
 
 ```bash

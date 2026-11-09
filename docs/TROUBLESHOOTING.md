@@ -138,6 +138,26 @@ cat /opt/docker/data/caddy/Caddyfile                           # generated route
 2. `sudo ./update.sh` — new `compose/<service>` folders are added to `STACKS`
    automatically (`STACKS_AUTO=1`, the default). To wire it up by hand instead,
    set `STACKS_AUTO=0` and add `<service>` to `STACKS` in `/opt/docker/.env`.
+   To ship a stack **disabled by default** (opt-in), add an empty
+   `compose/<service>/.optional` file — it is then never auto-enabled and must be
+   added to `STACKS` explicitly.
 
 Examples to add later: Home Assistant, Grafana, Prometheus, Uptime Kuma,
 Vaultwarden.
+
+## Optional host-network stacks (Technitium, NetBird)
+
+These stacks use `network_mode: host`, so they bind directly on the host and are
+not reachable through Caddy.
+
+- **Technitium can't bind port 53** (`address already in use`): the host's
+  `systemd-resolved` holds `:53`. Disable its stub listener
+  (`DNSStubListener=no` in `/etc/systemd/resolved.conf`, relink
+  `/etc/resolv.conf` to `/run/systemd/resolve/resolv.conf`, then
+  `sudo systemctl restart systemd-resolved`). See docs/INSTALL.md.
+- **Disabling a host-network stack:** removing it from `STACKS` stops it being
+  recreated, but does not stop an already-running container. Take it down with:
+  ```bash
+  docker compose --project-name <stack> \
+    -f /opt/docker/compose/<stack>/docker-compose.yml down
+  ```

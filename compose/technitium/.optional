@@ -1,0 +1,3 @@
+# Presence of this file marks the stack as optional: it is shipped but NOT
+# auto-enabled. Enable it by adding "technitium" to STACKS in /opt/docker/.env
+# (or by selecting it during the interactive install). See docs/INSTALL.md.

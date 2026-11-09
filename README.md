@@ -54,9 +54,12 @@ TLS is configured in `.env`:
 | **Semaphore** | Ansible/Terraform UI (+ PostgreSQL) | `https://automation.<domain>` |
 | **Gitea** | Self-hosted Git (SQLite) | `https://git.<domain>`, SSH on `:2222` |
 | **Dockhand** | Docker management UI (mounts Docker socket) | `https://dockhand.<domain>` (via proxy) |
+| **Technitium** _(optional)_ | DNS + DHCP server (host networking) | `http://<host>:5380` (not via proxy) |
 
-All containers join the shared external `proxy` network and use the
-`unless-stopped` restart policy.
+All proxied containers join the shared external `proxy` network and use the
+`unless-stopped` restart policy. _Optional_ stacks ship **disabled** (host-level
+services, not behind Caddy); enable them by adding the name to `STACKS` or by
+selecting them during the interactive setup.
 
 ## Architecture
 

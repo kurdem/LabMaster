@@ -158,7 +158,11 @@ setup_env_interactive() {
     if [[ "${#optional[@]}" -gt 0 ]]; then
         log_info "Select which services to deploy (caddy reverse proxy is always installed):"
         for s in "${optional[@]}"; do
-            [[ "$(_ask_bool "Deploy ${s}?" yes)" == 1 ]] && selected+=("$s")
+            # Stacks shipping a '.optional' marker default to NO (host-level or
+            # config-dependent services that should not auto-start).
+            local def="yes"
+            [[ -f "${REPO_ROOT}/compose/${s}/.optional" ]] && def="no"
+            [[ "$(_ask_bool "Deploy ${s}?" "$def")" == 1 ]] && selected+=("$s")
         done
     fi
     local stacks_selected="caddy${selected[*]:+ ${selected[*]}}"
@@ -310,14 +314,21 @@ sync_stacks() {
     local seeded=0
     [[ -z "${STACKS_KNOWN:-}" ]] && { STACKS_KNOWN="${STACKS:-}"; seeded=1; }
 
-    local -a enabled=(${STACKS:-}) known=(${STACKS_KNOWN:-}) added=()
+    local -a enabled=(${STACKS:-}) known=(${STACKS_KNOWN:-}) added=() opt_skipped=()
     local s h found
     for s in $(find "$compose_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort); do
         [[ -f "${compose_dir}/${s}/docker-compose.yml" ]] || continue
         found=0
         for h in "${known[@]}"; do [[ "$h" == "$s" ]] && { found=1; break; }; done
         if [[ "$found" -eq 0 ]]; then
-            enabled+=("$s"); known+=("$s"); added+=("$s")
+            # Mark as seen either way; a '.optional' stack is shipped but NOT
+            # auto-enabled (host-level / needs config - enable via STACKS).
+            known+=("$s")
+            if [[ -f "${compose_dir}/${s}/.optional" ]]; then
+                opt_skipped+=("$s")
+            else
+                enabled+=("$s"); added+=("$s")
+            fi
         fi
     done
 
@@ -326,9 +337,12 @@ sync_stacks() {
         export STACKS="${enabled[*]}"
         log_ok "Added new stack(s) to STACKS: ${added[*]}"
     fi
-    if [[ "${#added[@]}" -gt 0 || "$seeded" -eq 1 ]]; then
+    if [[ "${#added[@]}" -gt 0 || "${#opt_skipped[@]}" -gt 0 || "$seeded" -eq 1 ]]; then
         _set_env_value "$target" STACKS_KNOWN "\"${known[*]}\""
         export STACKS_KNOWN="${known[*]}"
+    fi
+    if [[ "${#opt_skipped[@]}" -gt 0 ]]; then
+        log_info "Optional stack(s) available (enable by adding to STACKS): ${opt_skipped[*]}"
     fi
 }
 

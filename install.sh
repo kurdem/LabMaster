@@ -118,6 +118,10 @@ ensure_secret AZURE_CLIENT_SECRET ""
 ensure_secret AZURE_SUBSCRIPTION_ID ""
 ensure_secret AZURE_RESOURCE_GROUP_NAME ""
 
+# Optional stacks (shipped disabled). Technitium's DNS web console admin password
+# is generated; it is only used once the 'technitium' stack is enabled.
+ensure_secret TECHNITIUM_ADMIN_PASSWORD "$(gen_secret 20)"
+
 # Select the Semaphore image with PowerShell support (auto-resolve newest stable
 # -powershell tag unless SEMAPHORE_IMAGE_AUTO=0). Writes SEMAPHORE_IMAGE_TAG to
 # the runtime .env so the semaphore stack picks it up in step 7.
@@ -135,7 +139,9 @@ mkdir -p \
     "${DOCKER_ROOT}/data/semaphore/data" \
     "${DOCKER_ROOT}/data/semaphore/postgres" \
     "${DOCKER_ROOT}/data/gitea" \
-    "${DOCKER_ROOT}/data/dockhand"
+    "${DOCKER_ROOT}/data/dockhand" \
+    "${DOCKER_ROOT}/data/technitium/config" \
+    "${DOCKER_ROOT}/data/technitium/logs"
 log_ok "Directory structure ready."
 
 # Fix ownership of bind mounts for containers that run as a non-root user and

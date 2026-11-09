@@ -1,0 +1,23 @@
+# Technitium DNS Server (optional) - DNS + DHCP for your LAN. Uses host
+# networking so DHCP (which relies on LAN broadcast) and DNS on :53 work. The
+# admin console is at http://<host>:5380 and is NOT behind Caddy (host mode
+# bypasses the proxy network). Opt-in (ships a .optional marker): enable by
+# adding "technitium" to STACKS, or by selecting it during the interactive setup.
+# NOTE: binding :53 collides with the host's systemd-resolved stub listener -
+# see docs/TROUBLESHOOTING.md before enabling.
+services:
+  technitium:
+    image: technitium/dns-server:latest
+    container_name: technitium
+    hostname: technitium
+    network_mode: host
+    environment:
+      TZ: ${TIMEZONE}
+      DNS_SERVER_DOMAIN: ${TECHNITIUM_DNS_DOMAIN:-dns.${DOMAIN}}
+      DNS_SERVER_ADMIN_PASSWORD: ${TECHNITIUM_ADMIN_PASSWORD}
+      DNS_SERVER_WEB_SERVICE_HTTP_PORT: ${TECHNITIUM_WEB_PORT:-5380}
+      DNS_SERVER_LOG_FOLDER_PATH: /var/log/technitium/dns
+    volumes:
+      - ${DOCKER_ROOT}/data/technitium/config:/etc/dns
+      - ${DOCKER_ROOT}/data/technitium/logs:/var/log/technitium/dns
+    restart: unless-stopped
