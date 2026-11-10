@@ -32,6 +32,10 @@ services:
       - ${DOCKER_ROOT}/data/caddy/config:/config
     networks:
       - proxy
+    # Lets Caddy reach host-networked stacks (e.g. the Technitium admin console
+    # on the host) via host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 networks:
   proxy:

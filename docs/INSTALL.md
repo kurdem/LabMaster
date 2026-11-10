@@ -152,8 +152,12 @@ selecting it during the interactive install). They are **not** reached via Caddy
    `sudo ./update.sh`.
 3. Open the admin console at `http://<host>:5380` and log in as `admin` with
    `TECHNITIUM_ADMIN_PASSWORD` from `/opt/docker/.secrets.env`. Configure DNS
-   zones / the DHCP scope there. (Technitium runs with host networking, so DNS,
-   DHCP and the console bind directly on the host — not behind Caddy.)
+   zones / the DHCP scope there. DNS and DHCP bind directly on the host (host
+   networking). The admin console is **also** published via Caddy at
+   `https://${TECHNITIUM_SUBDOMAIN}.<domain>` (default `dns.<domain>`) once the
+   stack is enabled — Caddy reaches it through the host gateway. Since this
+   exposes the console over HTTPS, protect it (strong password, and ideally
+   restrict access, e.g. via the NetBird VPN or a Caddy access rule).
 
 ### NetBird (mesh-VPN agent)
 

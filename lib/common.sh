@@ -411,11 +411,14 @@ generate_caddyfile() {
 
     # stack -> "subdomain_value forward_host forward_port" (Caddy handles
     # WebSockets automatically, so no per-route flag is needed).
+    # Technitium runs in host networking, so Caddy reaches its admin console via
+    # the host gateway (host.docker.internal; see extra_hosts in caddy compose).
     declare -A FORWARD=(
         [n8n]="${N8N_SUBDOMAIN:-n8n} n8n 5678"
         [gitea]="${GITEA_SUBDOMAIN:-git} gitea 3000"
         [semaphore]="${SEMAPHORE_SUBDOMAIN:-automation} semaphore 3000"
         [dockhand]="${DOCKHAND_SUBDOMAIN:-dockhand} dockhand 3000"
+        [technitium]="${TECHNITIUM_SUBDOMAIN:-dns} host.docker.internal ${TECHNITIUM_WEB_PORT:-5380}"
     )
 
     mkdir -p "$(dirname "$out")"

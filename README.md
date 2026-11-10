@@ -54,7 +54,7 @@ TLS is configured in `.env`:
 | **Semaphore** | Ansible/Terraform UI (+ PostgreSQL) | `https://automation.<domain>` |
 | **Gitea** | Self-hosted Git (SQLite) | `https://git.<domain>`, SSH on `:2222` |
 | **Dockhand** | Docker management UI (mounts Docker socket) | `https://dockhand.<domain>` (via proxy) |
-| **Technitium** _(optional)_ | DNS + DHCP server (host networking) | `http://<host>:5380` (not via proxy) |
+| **Technitium** _(optional)_ | DNS + DHCP server (host networking) | `https://dns.<domain>` (via proxy) or `http://<host>:5380` |
 | **NetBird** _(optional)_ | Mesh-VPN agent — joins this host to your NetBird network | peer on your VPN (not via proxy) |
 
 All proxied containers join the shared external `proxy` network and use the
