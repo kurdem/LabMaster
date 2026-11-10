@@ -1,0 +1,3 @@
+# Presence of this file marks the stack as optional: it is shipped but NOT
+# auto-enabled. Set NETBIRD_SETUP_KEY in /opt/docker/.secrets.env, then enable it
+# by adding "netbird" to STACKS in /opt/docker/.env. See docs/INSTALL.md.

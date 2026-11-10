@@ -2,11 +2,18 @@
 
 ## Prerequisites
 
-- A fresh **Ubuntu Server LTS** (20.04 / 22.04 / 24.04) machine.
+- A fresh **Ubuntu Server LTS** (20.04 / 22.04 / 24.04), **Debian**, or
+  **Raspberry Pi OS** machine. For Raspberry Pi (4/5) use the **64-bit** OS —
+  some images (e.g. Gitea) are not published for 32-bit ARM.
 - Root or `sudo` access.
 - Outbound internet access (to fetch packages and images).
 - DNS records for your subdomains pointing to the host's public IP
   (can be configured after installation).
+
+> **Raspberry Pi / ARM note:** everything runs on arm64, with one caveat —
+> Semaphore's PowerShell-enabled image is amd64-only, so on ARM the installer
+> automatically uses the plain Semaphore image (Ansible/Terraform/Bash work;
+> PowerShell tasks do not). All other services are unaffected.
 
 ## 1. Get the project
 
@@ -63,11 +70,24 @@ First-time configuration - press Enter to accept each [default]:
   Semaphore subdomain [automation]:
   Gitea SSH port [2222]:
   ...
+Select which services to deploy (caddy reverse proxy is always installed):
+  Deploy dockhand? [Y/n]:
+  Deploy gitea? [Y/n]: n
+  Deploy n8n? [Y/n]:
+  Deploy semaphore? [Y/n]:
 ```
 
+The service selection is **modular**: Caddy (the reverse proxy) is always
+installed; every other stack is opt-in (default yes). Deselected services are
+not deployed, and they stay deselected on later `install.sh`/`update.sh` runs
+(tracked via `STACKS_KNOWN`). To change the selection afterwards, edit `STACKS`
+in `/opt/docker/.env` and run `sudo ./update.sh` (removing a running service
+also needs `docker compose ... down` or `teardown.sh`).
+
 Pressing Enter keeps the default. For **unattended installs** (no terminal, or
-`ASSUME_DEFAULTS=1 sudo -E ./install.sh`), the template is copied unchanged —
-adjust `/opt/docker/.env` afterwards and re-run `sudo ./update.sh`.
+`ASSUME_DEFAULTS=1 sudo -E ./install.sh`), the template is copied unchanged (all
+services enabled) — adjust `/opt/docker/.env` afterwards and re-run
+`sudo ./update.sh`.
 
 Secrets (passwords, encryption keys) are generated separately into
 `/opt/docker/.secrets.env` and never need manual input.
@@ -111,6 +131,53 @@ Secrets (passwords, encryption keys) are generated separately into
    the Docker socket (root-equivalent host control), so keep it behind the proxy
    and never expose its port publicly.
 6. **Firewall (optional):** `sudo /opt/docker/scripts/firewall.sh` then `ufw enable`.
+
+## Optional stacks
+
+Some stacks ship **disabled** (they carry a `compose/<stack>/.optional` marker)
+because they use host networking and need host-level setup. Enable one by adding
+its name to `STACKS` in `/opt/docker/.env` and running `sudo ./update.sh` (or by
+selecting it during the interactive install). They are **not** reached via Caddy.
+
+### Technitium (DNS + DHCP)
+
+1. **Free up port 53.** On Ubuntu/Debian the host's `systemd-resolved` listens on
+   `:53` and must stop doing so before Technitium can bind it:
+   ```bash
+   sudo sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
+   sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+   sudo systemctl restart systemd-resolved
+   ```
+2. Enable the stack: add `technitium` to `STACKS` in `/opt/docker/.env`, then
+   `sudo ./update.sh`.
+3. Open the admin console at `http://<host>:5380` and log in as `admin` with
+   `TECHNITIUM_ADMIN_PASSWORD` from `/opt/docker/.secrets.env`. Configure DNS
+   zones / the DHCP scope there. DNS and DHCP bind directly on the host (host
+   networking). The admin console is **also** published via Caddy at
+   `https://${TECHNITIUM_SUBDOMAIN}.<domain>` (default `dns.<domain>`) once the
+   stack is enabled — Caddy reaches it through the host gateway. Since this
+   exposes the console over HTTPS, protect it (strong password, and ideally
+   restrict access, e.g. via the NetBird VPN or a Caddy access rule).
+
+### NetBird (mesh-VPN agent)
+
+Joins this host to a NetBird network as a peer (uses host networking + a
+WireGuard interface; not behind Caddy).
+
+1. Get a **setup key** from your NetBird dashboard (cloud or self-hosted) and put
+   it in `/opt/docker/.secrets.env`:
+   ```ini
+   NETBIRD_SETUP_KEY=nbp_xxxxxxxx
+   ```
+   For a self-hosted control plane, also set `NETBIRD_MANAGEMENT_URL` in `.env`
+   (default is NetBird Cloud). Optionally set `NETBIRD_HOSTNAME` (the peer name).
+2. Enable the stack: add `netbird` to `STACKS` in `/opt/docker/.env`, then
+   `sudo ./update.sh`.
+3. Check it connected:
+   ```bash
+   docker logs netbird
+   docker exec netbird netbird status
+   ```
 
 ## Verifying
 

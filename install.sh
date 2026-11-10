@@ -40,15 +40,22 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
     log_ok "Docker and the compose plugin are already installed; skipping."
 else
     install -m 0755 -d /etc/apt/keyrings
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    # Docker ships a separate APT repo per distro. Map Ubuntu / Debian /
+    # Raspberry Pi OS (ID=raspbian on 32-bit, ID=debian on 64-bit).
+    case "${ID:-ubuntu}" in
+        ubuntu)   DOCKER_REPO_OS="ubuntu" ;;
+        raspbian) DOCKER_REPO_OS="raspbian" ;;
+        *)        DOCKER_REPO_OS="debian" ;;
+    esac
     if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+        curl -fsSL "https://download.docker.com/linux/${DOCKER_REPO_OS}/gpg" \
             -o /etc/apt/keyrings/docker.asc
         chmod a+r /etc/apt/keyrings/docker.asc
     fi
-    # shellcheck disable=SC1091
-    . /etc/os-release
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
+https://download.docker.com/linux/${DOCKER_REPO_OS} ${VERSION_CODENAME} stable" \
         > /etc/apt/sources.list.d/docker.list
     apt-get update -qq
     apt-get install -y \
@@ -111,6 +118,13 @@ ensure_secret AZURE_CLIENT_SECRET ""
 ensure_secret AZURE_SUBSCRIPTION_ID ""
 ensure_secret AZURE_RESOURCE_GROUP_NAME ""
 
+# Optional stacks (shipped disabled). Technitium's DNS web console admin password
+# is generated; it is only used once the 'technitium' stack is enabled.
+ensure_secret TECHNITIUM_ADMIN_PASSWORD "$(gen_secret 20)"
+# NetBird agent setup key - empty placeholder; fill it in before enabling the
+# 'netbird' stack (get a setup key from your NetBird dashboard).
+ensure_secret NETBIRD_SETUP_KEY ""
+
 # Select the Semaphore image with PowerShell support (auto-resolve newest stable
 # -powershell tag unless SEMAPHORE_IMAGE_AUTO=0). Writes SEMAPHORE_IMAGE_TAG to
 # the runtime .env so the semaphore stack picks it up in step 7.
@@ -128,7 +142,10 @@ mkdir -p \
     "${DOCKER_ROOT}/data/semaphore/data" \
     "${DOCKER_ROOT}/data/semaphore/postgres" \
     "${DOCKER_ROOT}/data/gitea" \
-    "${DOCKER_ROOT}/data/dockhand"
+    "${DOCKER_ROOT}/data/dockhand" \
+    "${DOCKER_ROOT}/data/technitium/config" \
+    "${DOCKER_ROOT}/data/technitium/logs" \
+    "${DOCKER_ROOT}/data/netbird"
 log_ok "Directory structure ready."
 
 # Fix ownership of bind mounts for containers that run as a non-root user and

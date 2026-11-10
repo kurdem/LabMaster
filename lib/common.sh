@@ -29,20 +29,36 @@ require_root() {
     fi
 }
 
-# check_os: verify the host is Ubuntu and warn if not an LTS release.
+# check_os: verify the host runs a supported distro (Ubuntu LTS, Debian, or
+# Raspberry Pi OS) and warn on 32-bit ARM where some images are 64-bit only.
 check_os() {
     [[ -r /etc/os-release ]] || die "Cannot read /etc/os-release - unsupported OS."
     # shellcheck disable=SC1091
     . /etc/os-release
-    if [[ "${ID:-}" != "ubuntu" ]]; then
-        die "Unsupported OS '${ID:-unknown}'. This project targets Ubuntu Server LTS."
-    fi
-    # LTS releases use an even year and the .04 release (e.g. 20.04, 22.04, 24.04).
-    if [[ ! "${VERSION_ID:-}" =~ ^(20|22|24|26)\.04$ ]]; then
-        log_warn "Ubuntu ${VERSION_ID:-?} is not a recognised LTS release; continuing anyway."
-    else
-        log_ok "Detected Ubuntu ${VERSION_ID} LTS (${VERSION_CODENAME:-})."
-    fi
+    case "${ID:-}" in
+        ubuntu)
+            # LTS releases use an even year and the .04 release (20.04, 22.04, ...).
+            if [[ ! "${VERSION_ID:-}" =~ ^(20|22|24|26)\.04$ ]]; then
+                log_warn "Ubuntu ${VERSION_ID:-?} is not a recognised LTS release; continuing anyway."
+            else
+                log_ok "Detected Ubuntu ${VERSION_ID} LTS (${VERSION_CODENAME:-})."
+            fi
+            ;;
+        debian|raspbian)
+            # Raspberry Pi OS reports ID=debian (64-bit) or ID=raspbian (32-bit).
+            log_ok "Detected ${PRETTY_NAME:-${ID} ${VERSION_ID:-}} (Debian-based) - supported."
+            ;;
+        *)
+            die "Unsupported OS '${ID:-unknown}'. This project targets Ubuntu Server LTS or Debian / Raspberry Pi OS."
+            ;;
+    esac
+    # Several images (e.g. Gitea) ship arm64 but not 32-bit ARM.
+    local arch; arch="$(uname -m)"
+    case "$arch" in
+        armv6l|armv7l|armhf)
+            log_warn "32-bit ARM (${arch}) detected; some images are 64-bit only. Use a 64-bit OS (e.g. Raspberry Pi OS 64-bit) for full support."
+            ;;
+    esac
 }
 
 # --- Paths / config ---------------------------------------------------------
@@ -76,6 +92,16 @@ _ask() {
     local __var="$1" __prompt="$2" __default="${!1:-}" __input
     read -r -p "  ${__prompt} [${__default}]: " __input
     printf -v "$__var" '%s' "${__input:-$__default}"
+}
+
+# _ask_bool <prompt> <default yes|no> : read a yes/no answer (default when empty)
+# and echo "1" for yes or "0" for no. Used for the modular stack selection.
+_ask_bool() {
+    local __prompt="$1" __default="${2:-yes}" __ans __hint
+    [[ "$__default" == "yes" ]] && __hint="[Y/n]" || __hint="[y/N]"
+    read -r -p "  ${__prompt} ${__hint}: " __ans
+    __ans="${__ans:-$__default}"
+    [[ "$__ans" =~ ^([Yy]([Ee][Ss])?)$ ]] && echo 1 || echo 0
 }
 
 # _set_env_value <file> <key> <value> : replace KEY=... in file, or append it.
@@ -121,6 +147,27 @@ setup_env_interactive() {
     _ask CADDY_HTTPS_PORT   "Caddy HTTPS port"
     _ask CADDY_TLS_MODE     "TLS mode (letsencrypt/internal)"
 
+    # Modular stack selection: caddy (reverse proxy) is always installed; every
+    # other compose/<stack> is offered for opt-in. Data-driven so stacks added
+    # later are offered automatically.
+    local -a optional=() selected=() s
+    for s in $(find "${REPO_ROOT}/compose" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort); do
+        [[ "$s" == "caddy" ]] && continue
+        optional+=("$s")
+    done
+    if [[ "${#optional[@]}" -gt 0 ]]; then
+        log_info "Select which services to deploy (caddy reverse proxy is always installed):"
+        for s in "${optional[@]}"; do
+            # Stacks shipping a '.optional' marker default to NO (host-level or
+            # config-dependent services that should not auto-start).
+            local def="yes"
+            [[ -f "${REPO_ROOT}/compose/${s}/.optional" ]] && def="no"
+            [[ "$(_ask_bool "Deploy ${s}?" "$def")" == 1 ]] && selected+=("$s")
+        done
+    fi
+    local stacks_selected="caddy${selected[*]:+ ${selected[*]}}"
+    local stacks_known="caddy${optional[*]:+ ${optional[*]}}"
+
     # Start from the template, then override the prompted keys.
     cp "$example" "$target"
     local k
@@ -128,7 +175,12 @@ setup_env_interactive() {
              GITEA_SSH_PORT CADDY_HTTP_PORT CADDY_HTTPS_PORT CADDY_TLS_MODE; do
         _set_env_value "$target" "$k" "${!k}"
     done
+    # Persist the selection. STACKS_KNOWN lists every offered stack so sync_stacks
+    # treats a deselected one as "known" (already seen) and never re-adds it.
+    _set_env_value "$target" STACKS "\"${stacks_selected}\""
+    _set_env_value "$target" STACKS_KNOWN "\"${stacks_known}\""
     log_ok "Configuration written to ${target}"
+    log_ok "Enabled stacks: ${stacks_selected}"
 }
 
 # --- Secrets ----------------------------------------------------------------
@@ -188,6 +240,18 @@ ensure_semaphore_image_tag() {
     [[ -f "$target" ]] || return 0
     if [[ "${SEMAPHORE_IMAGE_AUTO:-1}" != "1" ]]; then
         log_info "SEMAPHORE_IMAGE_AUTO=0 - keeping pinned SEMAPHORE_IMAGE_TAG=${SEMAPHORE_IMAGE_TAG:-<unset>}."
+        return 0
+    fi
+    # PowerShell-enabled Semaphore images are published for amd64 only. On other
+    # architectures (e.g. arm64 Raspberry Pi) fall back to the plain multi-arch
+    # image so Semaphore runs at all - without PowerShell task support.
+    local arch; arch="$(uname -m)"
+    if [[ "$arch" != "x86_64" && "$arch" != "amd64" ]]; then
+        if [[ "${SEMAPHORE_IMAGE_TAG:-}" != "latest" ]]; then
+            _set_env_value "$target" SEMAPHORE_IMAGE_TAG "latest"
+            export SEMAPHORE_IMAGE_TAG="latest"
+        fi
+        log_warn "Architecture ${arch}: Semaphore PowerShell images are amd64-only; using 'latest' (no PowerShell)."
         return 0
     fi
     local tag
@@ -250,14 +314,21 @@ sync_stacks() {
     local seeded=0
     [[ -z "${STACKS_KNOWN:-}" ]] && { STACKS_KNOWN="${STACKS:-}"; seeded=1; }
 
-    local -a enabled=(${STACKS:-}) known=(${STACKS_KNOWN:-}) added=()
+    local -a enabled=(${STACKS:-}) known=(${STACKS_KNOWN:-}) added=() opt_skipped=()
     local s h found
     for s in $(find "$compose_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort); do
         [[ -f "${compose_dir}/${s}/docker-compose.yml" ]] || continue
         found=0
         for h in "${known[@]}"; do [[ "$h" == "$s" ]] && { found=1; break; }; done
         if [[ "$found" -eq 0 ]]; then
-            enabled+=("$s"); known+=("$s"); added+=("$s")
+            # Mark as seen either way; a '.optional' stack is shipped but NOT
+            # auto-enabled (host-level / needs config - enable via STACKS).
+            known+=("$s")
+            if [[ -f "${compose_dir}/${s}/.optional" ]]; then
+                opt_skipped+=("$s")
+            else
+                enabled+=("$s"); added+=("$s")
+            fi
         fi
     done
 
@@ -266,9 +337,12 @@ sync_stacks() {
         export STACKS="${enabled[*]}"
         log_ok "Added new stack(s) to STACKS: ${added[*]}"
     fi
-    if [[ "${#added[@]}" -gt 0 || "$seeded" -eq 1 ]]; then
+    if [[ "${#added[@]}" -gt 0 || "${#opt_skipped[@]}" -gt 0 || "$seeded" -eq 1 ]]; then
         _set_env_value "$target" STACKS_KNOWN "\"${known[*]}\""
         export STACKS_KNOWN="${known[*]}"
+    fi
+    if [[ "${#opt_skipped[@]}" -gt 0 ]]; then
+        log_info "Optional stack(s) available (enable by adding to STACKS): ${opt_skipped[*]}"
     fi
 }
 
@@ -337,11 +411,14 @@ generate_caddyfile() {
 
     # stack -> "subdomain_value forward_host forward_port" (Caddy handles
     # WebSockets automatically, so no per-route flag is needed).
+    # Technitium runs in host networking, so Caddy reaches its admin console via
+    # the host gateway (host.docker.internal; see extra_hosts in caddy compose).
     declare -A FORWARD=(
         [n8n]="${N8N_SUBDOMAIN:-n8n} n8n 5678"
         [gitea]="${GITEA_SUBDOMAIN:-git} gitea 3000"
         [semaphore]="${SEMAPHORE_SUBDOMAIN:-automation} semaphore 3000"
         [dockhand]="${DOCKHAND_SUBDOMAIN:-dockhand} dockhand 3000"
+        [technitium]="${TECHNITIUM_SUBDOMAIN:-dns} host.docker.internal ${TECHNITIUM_WEB_PORT:-5380}"
     )
 
     mkdir -p "$(dirname "$out")"

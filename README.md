@@ -1,10 +1,10 @@
 # LabMaster — Docker-Host Bootstrap
 
-Automated, reproducible provisioning of a **Docker host on Ubuntu Server LTS**.
-After a fresh OS install, a **single command** turns the machine into a
-production-ready Docker host running a Caddy reverse proxy, n8n, Semaphore,
-Gitea and Dockhand — with persistent data, randomly generated secrets,
-automatic TLS and a backup/restore workflow.
+Automated, reproducible provisioning of a **Docker host on Ubuntu Server LTS,
+Debian, or Raspberry Pi OS (64-bit)**. After a fresh OS install, a **single
+command** turns the machine into a production-ready Docker host running a Caddy
+reverse proxy, n8n, Semaphore, Gitea and Dockhand — with persistent data,
+randomly generated secrets, automatic TLS and a backup/restore workflow.
 
 ```bash
 sudo apt update && sudo apt install -y git   # if git is not installed yet
@@ -14,8 +14,10 @@ sudo ./install.sh        # or: sudo bash install.sh
 ```
 
 On first run the installer prompts interactively for `DOMAIN`, `TIMEZONE`,
-subdomains and ports (defaults from `.env.example`). For unattended installs,
-set `ASSUME_DEFAULTS=1` to accept all defaults without prompting.
+subdomains and ports (defaults from `.env.example`), and lets you **deselect
+individual services** (Caddy is always installed). For unattended installs,
+set `ASSUME_DEFAULTS=1` to accept all defaults without prompting (all services
+enabled).
 
 ### Reverse proxy: Caddy with automatic TLS
 
@@ -52,9 +54,13 @@ TLS is configured in `.env`:
 | **Semaphore** | Ansible/Terraform UI (+ PostgreSQL) | `https://automation.<domain>` |
 | **Gitea** | Self-hosted Git (SQLite) | `https://git.<domain>`, SSH on `:2222` |
 | **Dockhand** | Docker management UI (mounts Docker socket) | `https://dockhand.<domain>` (via proxy) |
+| **Technitium** _(optional)_ | DNS + DHCP server (host networking) | `https://dns.<domain>` (via proxy) or `http://<host>:5380` |
+| **NetBird** _(optional)_ | Mesh-VPN agent — joins this host to your NetBird network | peer on your VPN (not via proxy) |
 
-All containers join the shared external `proxy` network and use the
-`unless-stopped` restart policy.
+All proxied containers join the shared external `proxy` network and use the
+`unless-stopped` restart policy. _Optional_ stacks ship **disabled** (host-level
+services, not behind Caddy); enable them by adding the name to `STACKS` or by
+selecting them during the interactive setup.
 
 ## Architecture
 
@@ -118,7 +124,8 @@ so PowerShell support comes from the image tag. There is no rolling
 and `update.sh` auto-resolve the newest **stable** `*-powershell` tag and write
 it to `SEMAPHORE_IMAGE_TAG` in `.env`. To pin a specific version (or a
 non-PowerShell image), set `SEMAPHORE_IMAGE_AUTO=0` and `SEMAPHORE_IMAGE_TAG`
-manually.
+manually. On **ARM (Raspberry Pi)** the PowerShell images are not available
+(amd64-only), so the installer uses the plain multi-arch image automatically.
 
 ## Documentation
 
